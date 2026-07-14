@@ -1,0 +1,35 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Test/lint caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Secrets/env
+.env
+.env.*
+
+# Local model artifacts (whisper.cpp / Piper / Ollama / embeddings — later phases)
+*.gguf
+*.onnx
+*.ggml
+models/
+traces/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Local code-graph tool output (generated)
+.codegraph/
