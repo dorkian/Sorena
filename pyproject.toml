@@ -6,7 +6,11 @@ authors = [
     { name = "dorkianaico-creator", email = "dorkian.ai.co@gmail.com" }
 ]
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "litellm<1.92",
+    "python-dotenv>=1.2.2",
+    "tenacity>=9.1.4",
+]
 
 [project.scripts]
 sorena = "sorena:main"

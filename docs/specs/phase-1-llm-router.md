@@ -1,6 +1,6 @@
 # Phase 1 — LLM Router with Fallback
 
-**Status:** Not started
+**Status:** Complete (v0.1.0)
 **Depends on:** Phase 0 (repo foundation)
 **Target duration:** 1 week
 **Release tag:** v0.1.0

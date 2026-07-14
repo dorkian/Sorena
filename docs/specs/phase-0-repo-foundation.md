@@ -1,6 +1,6 @@
 # Phase 0 — Repo Foundation
 
-**Status:** Not started
+**Status:** Complete (v0.0.1)
 **Depends on:** Nothing (first phase)
 **Target duration:** ½ week
 **Release tag:** v0.0.1

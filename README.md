@@ -12,7 +12,7 @@ Local-first, $0/month Jarvis-style AI assistant, built phase by phase. Each phas
 ```mermaid
 flowchart LR
     User -->|voice / text| Agent[Agent Loop]
-    Agent --> Router[LLM Router\nGroq → Gemini → Ollama]
+    Agent --> Router[LLM Router\nGroq → Gemini]
     Agent --> Tools[Tool Registry]
     Agent --> MCP[MCP Client]
     Agent --> Memory[Memory / RAG\nSQLite + embeddings]
@@ -43,6 +43,22 @@ uv run pytest               # run tests
 uv run ruff check .         # lint
 uv run ruff format .        # format
 pre-commit install          # enable git hooks (once)
+```
+
+## Demo: forced fallback
+
+`sorena.router.chat()` is the single entry point every other phase calls through. It tries providers in order (Groq → Gemini), retrying each with exponential backoff, and skips a provider locally once its free-tier RPM is hit — before a real 429 happens. Every call logs one JSONL record to `traces/telemetry.jsonl`.
+
+```bash
+uv run python examples/demo_fallback.py
+```
+
+Expected output — the primary provider is broken on purpose, so you see it fail and the router falls through automatically:
+
+```
+[router] groq/not-a-real-model failed: litellm.BadRequestError: ...
+
+Final reply: <a real reply from Gemini>
 ```
 
 ## Development
