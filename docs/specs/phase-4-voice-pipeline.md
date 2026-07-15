@@ -25,7 +25,7 @@ Real-time audio + local inference. A differentiator for edge/embedded AI roles, 
 - [x] VAD correctly ignores silence/background noise in a manual test (mic open, no speech, no false transcription)
 - [x] Full loop works end-to-end: wake word → listen → transcribe → agent loop (Phase 2) → stream TTS response, hands-free
 - [x] README demo: real captured transcript of the full voice interaction (screen recording swapped for a captured transcript, consistent with Phase 2/3)
-- [ ] Repo tagged `v0.4.0`
+- [x] Repo tagged `v0.4.0`
 
 ## Efficient Learning Path
 - whisper.cpp (or faster-whisper) README — just the quickstart and model-size tradeoff table (tiny/base/small) so you can justify your CPU/latency choice
