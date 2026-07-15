@@ -33,3 +33,20 @@ def test_call_tool_raises_malformed_on_bad_json():
 def test_call_tool_raises_malformed_on_unexpected_argument():
     with pytest.raises(MalformedArgumentsError):
         call_tool("get_current_time", '{"nonexistent_arg": "value"}')
+
+
+def test_register_mcp_tools_merges_into_existing_registry(monkeypatch):
+    from sorena.tools import registry
+
+    monkeypatch.setattr(registry, "TOOLS", dict(registry.TOOLS))
+    monkeypatch.setattr(registry, "TOOL_SCHEMAS", list(registry.TOOL_SCHEMAS))
+
+    fake_schema = {
+        "type": "function",
+        "function": {"name": "mcp_x_y", "description": "", "parameters": {}},
+    }
+    registry.register_mcp_tools({"mcp_x_y": lambda: "z"}, [fake_schema])
+
+    assert "mcp_x_y" in registry.TOOLS
+    assert fake_schema in registry.TOOL_SCHEMAS
+    assert call_tool("mcp_x_y", None) == "z"

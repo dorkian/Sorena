@@ -1,6 +1,6 @@
 [project]
 name = "sorena"
-version = "0.2.0"
+version = "0.3.0"
 description = "Local-first, zero-cost Jarvis-style AI assistant"
 authors = [
     { name = "dorkianaico-creator", email = "dorkian.ai.co@gmail.com" }
@@ -8,6 +8,7 @@ authors = [
 requires-python = ">=3.12"
 dependencies = [
     "litellm<1.92",
+    "mcp>=1.28.1",
     "python-dotenv>=1.2.2",
     "requests>=2.34.2",
     "tenacity>=9.1.4",
@@ -15,6 +16,7 @@ dependencies = [
 
 [project.scripts]
 sorena = "sorena:main"
+sorena-mcp = "sorena.mcp_server:main"
 
 [build-system]
 requires = ["uv_build>=0.11.22,<0.12.0"]

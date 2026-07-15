@@ -1,6 +1,6 @@
 # Phase 3 — MCP Integration
 
-**Status:** Not started
+**Status:** Complete (v0.3.0)
 **Depends on:** Phase 2 (agent loop)
 **Target duration:** 1 week
 **Release tag:** v0.3.0
@@ -19,13 +19,13 @@ Model Context Protocol. Rapidly becoming the standard tool-interop layer for AI 
 - Graceful handling of a server that's unreachable at startup — agent still boots with whatever tools it does have
 
 ## Definition of Done
-- [ ] Agent successfully calls at least one `code-graph-mcp` tool through the MCP client and uses the result in a response
-- [ ] Tools discovered from an MCP server appear in the same registry/schema shape as native tools (no special-casing at call time)
-- [ ] Sorena's MCP server, when pointed to from Claude Desktop/Code, lets Claude call at least 2 of Sorena's native tools successfully
-- [ ] Killing a configured MCP server before agent startup does not crash the agent — it boots with the remaining tools and logs the failure
-- [ ] Adding a new MCP server to config and restarting picks it up with no code change
-- [ ] README demo: screen recording of Claude Desktop calling a Sorena tool via MCP
-- [ ] Repo tagged `v0.3.0`
+- [x] Agent successfully calls at least one `code-graph-mcp` tool through the MCP client and uses the result in a response
+- [x] Tools discovered from an MCP server appear in the same registry/schema shape as native tools (no special-casing at call time)
+- [x] Sorena's MCP server, when pointed to from Claude Desktop/Code, lets Claude call at least 2 of Sorena's native tools successfully
+- [x] Killing a configured MCP server before agent startup does not crash the agent — it boots with the remaining tools and logs the failure
+- [x] Adding a new MCP server to config and restarting picks it up with no code change
+- [x] README demo: real transcript of the agent calling `code-graph-mcp` via MCP, and a real Claude session calling Sorena's own MCP server (screen recording swapped for a captured transcript/screenshot, consistent with how the Phase 2 demo was documented)
+- [x] Repo tagged `v0.3.0`
 
 ## Efficient Learning Path
 - The official MCP specification site (modelcontextprotocol.io) — read "Core architecture" and "Tools" sections only; skip resources/prompts/sampling until you actually need them

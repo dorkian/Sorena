@@ -41,3 +41,8 @@ def call_tool(name: str, arguments_json: str | None) -> str:
         return TOOLS[name](**args)
     except TypeError as e:
         raise MalformedArgumentsError(f"Invalid arguments for '{name}': {e}") from e
+
+
+def register_mcp_tools(tools: dict, schemas: list[dict]) -> None:
+    TOOLS.update(tools)
+    TOOL_SCHEMAS.extend(schemas)

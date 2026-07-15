@@ -1,0 +1,9 @@
+{
+  "servers": [
+    {
+      "name": "code-graph",
+      "command": "node",
+      "args": ["D:/Projects/code-graph-mcp/bin/code-graph-mcp.js", "--repo", "D:/Projects/Sorena"]
+    }
+  ]
+}

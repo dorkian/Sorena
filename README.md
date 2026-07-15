@@ -81,6 +81,42 @@ Agent: The current UTC time is 2026-07-15T11:25:43.972124+00:00. The most recent
 
 (The time tool call resolved correctly; the web search tool call also succeeded — the vague answer reflects the LLM's synthesis of that day's search results, not a tool failure.)
 
+## Demo: MCP client + server
+
+**Client:** the agent discovers and calls tools from any MCP server listed in `config/mcp_servers.json` — merged into the same tool registry native tools use, so the agent loop needs zero special-casing to call them. First server connected: [`code-graph-mcp`](https://github.com/dorkian/code-graph-mcp) (a separate project, dogfooded here), indexing Sorena's own repo.
+
+```bash
+uv run python examples/demo_mcp_client.py
+```
+
+Real captured output — the agent picks the right MCP tool on its own and uses the result:
+
+```
+User: Use the code-graph tool to summarize the Sorena repo -- how many files and packages does it contain?
+
+Agent: The Sorena repo contains 1 package and 29 files.
+```
+
+**Server:** Sorena also exposes its own native tools (time, file search, web search, shell) as an MCP server via `sorena-mcp`, so Claude Desktop or Claude Code can call them. Point a client's MCP config at:
+
+```json
+{
+  "mcpServers": {
+    "sorena": {
+      "command": "uv",
+      "args": ["run", "--directory", "D:/Projects/Sorena", "sorena-mcp"]
+    }
+  }
+}
+```
+
+Verified from a real Claude session — one prompt, two tool calls:
+
+> **User:** what time is it, and find all .toml files
+> **Claude:** It's 3:52 PM (Wed, Jul 15 2026). `.toml` files found: `pyproject.toml` — only one, in the Sorena project.
+
+Both a dead server at startup and adding a new server to config are handled without code changes — see [ADR 0004](docs/adr/0004-mcp-client-async-bridge.md) for the bridge design that makes the (async) MCP SDK work inside Sorena's synchronous agent loop.
+
 ## Development
 
 - Spec-first: every phase has a spec in `docs/specs/` before code is written
