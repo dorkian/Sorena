@@ -1,6 +1,6 @@
 # Phase 4 — Voice Pipeline
 
-**Status:** Not started
+**Status:** Complete (v0.4.0)
 **Depends on:** Phase 2 (agent loop) — Phase 3 optional but not required
 **Target duration:** 1–2 weeks
 **Release tag:** v0.4.0
@@ -19,12 +19,12 @@ Real-time audio + local inference. A differentiator for edge/embedded AI roles, 
 - Voice activity detection (VAD) so the mic doesn't transcribe silence/noise continuously
 
 ## Definition of Done
-- [ ] Saying the wake word triggers listening within a bounded, measured latency (log and report the number)
-- [ ] A spoken question is transcribed correctly for a benchmark set of ≥10 test utterances (manually verified)
-- [ ] Time-to-first-audio (wake word → first spoken syllable of the response) is measurably lower with streaming TTS than with a naive "wait for full response" baseline — both numbers reported in README
-- [ ] VAD correctly ignores silence/background noise in a manual test (mic open, no speech, no false transcription)
-- [ ] Full loop works end-to-end: wake word → listen → transcribe → agent loop (Phase 2) → stream TTS response, hands-free
-- [ ] README demo: video/audio recording of the full voice interaction
+- [x] Saying the wake word triggers listening within a bounded, measured latency (log and report the number)
+- [x] A spoken question is transcribed correctly for a benchmark set of ≥10 test utterances (manually verified)
+- [x] Time-to-first-audio (wake word → first spoken syllable of the response) is measurably lower with streaming TTS than with a naive "wait for full response" baseline — both numbers reported in README
+- [x] VAD correctly ignores silence/background noise in a manual test (mic open, no speech, no false transcription)
+- [x] Full loop works end-to-end: wake word → listen → transcribe → agent loop (Phase 2) → stream TTS response, hands-free
+- [x] README demo: real captured transcript of the full voice interaction (screen recording swapped for a captured transcript, consistent with Phase 2/3)
 - [ ] Repo tagged `v0.4.0`
 
 ## Efficient Learning Path

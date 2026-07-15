@@ -1,16 +1,22 @@
 [project]
 name = "sorena"
-version = "0.3.0"
+version = "0.4.0"
 description = "Local-first, zero-cost Jarvis-style AI assistant"
 authors = [
     { name = "dorkianaico-creator", email = "dorkian.ai.co@gmail.com" }
 ]
 requires-python = ">=3.12"
 dependencies = [
+    "faster-whisper>=1.2.1",
     "litellm<1.92",
     "mcp>=1.28.1",
+    "openwakeword>=0.6.0",
+    "piper-tts>=1.4.2",
     "python-dotenv>=1.2.2",
     "requests>=2.34.2",
+    "scipy>=1.18.0",
+    "silero-vad>=6.2.1",
+    "sounddevice>=0.5.3",
     "tenacity>=9.1.4",
 ]
 
@@ -21,6 +27,9 @@ sorena-mcp = "sorena.mcp_server:main"
 [build-system]
 requires = ["uv_build>=0.11.22,<0.12.0"]
 build-backend = "uv_build"
+
+[tool.uv]
+environments = ["sys_platform == 'win32'"]
 
 [dependency-groups]
 dev = [

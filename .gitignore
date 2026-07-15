@@ -25,6 +25,9 @@ wheels/
 models/
 traces/
 
+# Local voice-pipeline test recordings (Phase 4 diagnostics)
+*.wav
+
 # OS / editor
 .DS_Store
 Thumbs.db
