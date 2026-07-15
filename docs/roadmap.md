@@ -97,6 +97,28 @@ Interview line: *"Every PR runs an eval suite against the agent — I can show r
 
 ---
 
+## Phase 7 — AI Governance, Security & Responsible AI (½–1 week)
+**Skill learned: AI governance, security, and responsible-AI practices** (now a standard line item in AI-native job descriptions, not just a nice-to-have)
+
+Build:
+- Threat model the agent: prompt injection via tool results/web content (you already enforce an instruction-source boundary in the system prompt — document it), tool-permission scoping, PII handling in `traces/telemetry.jsonl`
+- `docs/SECURITY.md`: what gets logged, what's redacted, per-provider data-retention notes for each link in the Groq/Gemini chain
+- Output guardrails: refuse-categories + PII scrubbing before anything hits `traces/`
+- One paragraph per provider model documenting known limitations/bias caveats for your use case — not a full audit, just proof you understand the concept
+
+Interview topics you can now speak to: OWASP LLM Top 10 (prompt injection, insecure output handling, excessive agency), EU AI Act risk tiers (where a personal assistant sits vs. high-risk systems), responsible-AI principles (transparency, human oversight, accountability), the difference between AI governance (org policy) and AI security (technical controls).
+
+---
+
+## ML & GenAI Foundations (study alongside all phases, no dedicated build)
+Not a build phase — this project is agent/LLM-focused, not a classical-ML project, so don't invent a fake phase for it. Study these as you go and be ready to explain them in interviews:
+- **Classical ML**: supervised vs. unsupervised, train/test/val splits, overfitting, common metrics (precision/recall/F1, RMSE) — enough to not get filtered out by an "ML fundamentals" screening question
+- **Generative AI & LLM architecture**: transformer basics (attention, tokenization), pretraining vs. fine-tuning vs. RLHF, context windows, why decoder-only dominates chat models
+- **Prompt engineering**: few-shot vs. zero-shot, chain-of-thought, system/user/assistant role design (you're already doing this in Phase 1/2 — name it explicitly in interviews)
+- **Agentic workflows**: ReAct vs. plan-and-execute vs. multi-agent orchestration (Phase 2/3 gives you the hands-on version of this)
+
+---
+
 ## Repo best practices checklist (public repo)
 - One concept per module, docstrings on every public function
 - Type hints everywhere + `mypy` or `pyright` in CI
@@ -115,3 +137,5 @@ Interview line: *"Every PR runs an eval suite against the agent — I can show r
 | 4 | Voice | multimodal, edge AI, latency |
 | 5 | RAG | "RAG", embeddings, vector search |
 | 6 | Evals | "LLM evaluation", observability |
+| 7 | Governance/Security | "AI governance", "Responsible AI", "AI security" |
+| — | ML/GenAI Foundations | "ML principles", "prompt engineering", "agentic workflow", "generative AI/LLM architectures" |

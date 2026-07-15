@@ -1,6 +1,6 @@
 # Phase 2 — Tool-Calling Agent Loop
 
-**Status:** Not started
+**Status:** Complete (v0.2.0)
 **Depends on:** Phase 1 (LLM router)
 **Target duration:** 1–2 weeks
 **Release tag:** v0.2.0
@@ -19,14 +19,14 @@ Agent orchestration from first principles. THE core AI-engineer interview topic 
 - Validation layer that rejects/handles a hallucinated tool call (unknown tool name, malformed args) gracefully instead of crashing
 
 ## Definition of Done
-- [ ] Given a prompt requiring 2+ sequential tool calls, the loop resolves it end-to-end without manual intervention
-- [ ] Max-hop guard demonstrably stops a deliberately-induced infinite loop (test case included)
-- [ ] Each tool has its own unit tests independent of the agent loop
-- [ ] Shell tool refuses any command not on the allow-list (tested with a deliberately dangerous command)
-- [ ] Conversation memory compresses correctly when the window overflows — test asserts token count stays bounded across a long simulated conversation
-- [ ] A malformed/hallucinated tool call from the LLM is caught and fed back as an error observation, not an unhandled exception
-- [ ] README demo: terminal recording of a multi-step tool-using conversation
-- [ ] Repo tagged `v0.2.0`
+- [x] Given a prompt requiring 2+ sequential tool calls, the loop resolves it end-to-end without manual intervention
+- [x] Max-hop guard demonstrably stops a deliberately-induced infinite loop (test case included)
+- [x] Each tool has its own unit tests independent of the agent loop
+- [x] Shell tool refuses any command not on the allow-list (tested with a deliberately dangerous command)
+- [x] Conversation memory compresses correctly when the window overflows — test asserts token count stays bounded across a long simulated conversation
+- [x] A malformed/hallucinated tool call from the LLM is caught and fed back as an error observation, not an unhandled exception
+- [x] README demo: terminal recording of a multi-step tool-using conversation
+- [x] Repo tagged `v0.2.0`
 
 ## Efficient Learning Path
 - The original ReAct paper (Yao et al., "ReAct: Synergizing Reasoning and Acting in Language Models") — read the abstract + the loop diagram, skip the benchmark tables

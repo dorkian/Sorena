@@ -12,7 +12,11 @@ load_dotenv()
 _rate_limiter = RateLimiter(RATE_LIMITS_RPM)
 
 
-def chat(messages: list[dict]) -> str:
+def chat(
+    messages: list[dict],
+    tools: list[dict] | None = None,
+    tool_choice: str | None = None,
+) -> str:
     for model in PROVIDER_CHAIN:
         if not _rate_limiter.allow(model):
             print(f"[router] {model} locally rate-limited, skipping")
@@ -24,6 +28,7 @@ def chat(messages: list[dict]) -> str:
                 messages=messages,
                 num_retries=2,
                 retry_strategy="exponential_backoff_retry",
+                **({"tools": tools, "tool_choice": tool_choice} if tools else {}),
             )
             latency_ms = (time.monotonic() - start) * 1000
             _rate_limiter.record(model)
@@ -42,6 +47,10 @@ def chat(messages: list[dict]) -> str:
                 latency_ms=latency_ms,
                 cost=cost,
             )
+            message = response.choices[0].message
+            if getattr(message, "tool_calls", None):
+                return message
+
             return response.choices[0].message.content
         except Exception as e:
             print(f"[router] {model} failed: {e}")

@@ -1,6 +1,6 @@
 [project]
 name = "sorena"
-version = "0.1.0"
+version = "0.2.0"
 description = "Local-first, zero-cost Jarvis-style AI assistant"
 authors = [
     { name = "dorkianaico-creator", email = "dorkian.ai.co@gmail.com" }
@@ -9,6 +9,7 @@ requires-python = ">=3.12"
 dependencies = [
     "litellm<1.92",
     "python-dotenv>=1.2.2",
+    "requests>=2.34.2",
     "tenacity>=9.1.4",
 ]
 

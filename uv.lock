@@ -1438,11 +1438,12 @@ wheels = [
 
 [[package]]
 name = "sorena"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "litellm" },
     { name = "python-dotenv" },
+    { name = "requests" },
     { name = "tenacity" },
 ]
 
@@ -1457,6 +1458,7 @@ dev = [
 requires-dist = [
     { name = "litellm", specifier = "<1.92" },
     { name = "python-dotenv", specifier = ">=1.2.2" },
+    { name = "requests", specifier = ">=2.34.2" },
     { name = "tenacity", specifier = ">=9.1.4" },
 ]
 
