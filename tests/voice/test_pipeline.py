@@ -1,4 +1,13 @@
+import pytest
+
 from sorena.voice import pipeline
+
+
+@pytest.fixture(autouse=True)
+def _no_real_face_server(monkeypatch):
+    # face.start() binds a real port; keep pipeline tests offline/fast.
+    monkeypatch.setattr(pipeline.face, "start", lambda: None)
+    monkeypatch.setattr(pipeline.face, "push_state", lambda *a, **k: None)
 
 
 def test_split_sentences_splits_on_terminal_punctuation():

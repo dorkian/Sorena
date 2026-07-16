@@ -19,6 +19,7 @@ dependencies = [
     "silero-vad>=6.2.1",
     "sounddevice>=0.5.3",
     "tenacity>=9.1.4",
+    "websockets>=16.1",
 ]
 
 [project.scripts]

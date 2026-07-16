@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sorena</title>
+<style>
+  /* Full-viewport dark stage for the orb. Sorena's palette:
+     violet→cyan (idle/thinking), turquoise (listening), gold (speaking). */
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: #0b0e14; /* deep Persian-night blue-black */
+    overflow: hidden;
+    font-family: system-ui, sans-serif;
+  }
+  #stage {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  canvas { display: block; }
+  #status {
+    position: absolute;
+    bottom: 28px;
+    left: 0; right: 0;
+    text-align: center;
+    color: #8b93a7;
+    font-size: 14px;
+    letter-spacing: 0.04em;
+    user-select: none;
+  }
+  /* Dev-only state buttons. Remove or hide in production
+     (they exist so you can test without a backend). */
+  #devbar {
+    position: absolute;
+    top: 16px; right: 16px;
+    display: flex; gap: 8px;
+  }
+  #devbar button {
+    background: transparent;
+    color: #8b93a7;
+    border: 1px solid #2a3040;
+    border-radius: 8px;
+    padding: 6px 14px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  #devbar button:hover { border-color: #4a5570; color: #c6cde0; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="orb"></canvas>
+  <div id="status">idle</div>
+  <div id="devbar">
+    <button data-s="idle">Idle</button>
+    <button data-s="listening">Listening</button>
+    <button data-s="speaking">Speaking</button>
+  </div>
+</div>
+
+<script>
+/* =========================================================================
+   Sorena Orb — dotted 3D particle sphere with orbiting rings.
+   Canvas 2D only (no WebGL, no dependencies) — CPU-light by design:
+   ~1,000 dots, one rAF loop, no shadows/blur/gradients per frame.
+
+   PUBLIC API (call from anywhere, e.g. your WebSocket handler):
+     SorenaOrb.setState('idle' | 'listening' | 'speaking')
+     SorenaOrb.setLevel(0..1)   // live audio level: mic RMS while listening,
+                                // TTS output level while speaking.
+                                // If you never call it, a simulated level
+                                // animates automatically (demo mode).
+
+   BACKEND INTEGRATION (see bottom of file):
+     The Python side pushes JSON over a WebSocket:
+       {"state": "listening", "level": 0.62}
+     ~15–20 messages/sec is plenty. State changes crossfade automatically.
+   ========================================================================= */
+
+const SorenaOrb = (() => {
+  const canvas = document.getElementById('orb');
+  const ctx = canvas.getContext('2d');
+  const statusEl = document.getElementById('status');
+
+  // ---- sizing (device-pixel aware, capped DPR to stay cheap) -------------
+  let W, H, CX, CY, R, F;
+  function resize() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const size = Math.min(window.innerWidth, window.innerHeight);
+    W = size; H = size;
+    canvas.width = W * dpr;
+    canvas.height = H * dpr;
+    canvas.style.width = W + 'px';
+    canvas.style.height = H + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    CX = W / 2; CY = H / 2;
+    R = size * 0.24;        // sphere radius
+    F = size * 1.2;         // perspective focal length
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  // ---- particles ----------------------------------------------------------
+  // Core: Fibonacci sphere = evenly spread points, no clumping at poles.
+  const CORE_N = 620;
+  const core = [];
+  for (let i = 0; i < CORE_N; i++) {
+    const y = 1 - (i / (CORE_N - 1)) * 2;
+    const rad = Math.sqrt(1 - y * y);
+    const th = i * 2.39996323; // golden angle
+    core.push({
+      x: Math.cos(th) * rad, y, z: Math.sin(th) * rad,
+      ph: Math.random() * Math.PI * 2,   // per-dot phase for organic motion
+      mix: Math.random()                 // blend factor between palette A/B
+    });
+  }
+
+  // Rings: three tilted orbits (radius factor, tiltX, tiltZ, dot count, speed)
+  const RING_DEFS = [
+    [1.36, 0.45, 0.0, 110, 0.25],
+    [1.62, -0.6, 0.9, 130, -0.18],
+    [1.87, 0.2, 2.1, 150, 0.12],
+  ];
+  const rings = RING_DEFS.map(([rf, tx, tz, n, spd]) => ({
+    rf, tx, tz, spd,
+    dots: Array.from({ length: n }, (_, i) => ({
+      a: (i / n) * Math.PI * 2,
+      mix: Math.random(),
+      ph: Math.random() * Math.PI * 2
+    }))
+  }));
+
+  // ---- palettes -----------------------------------------------------------
+  // Each state blends every dot between two colors for visual depth.
+  const PALETTES = {
+    idle:      [[91, 79, 216], [56, 182, 216]],   // violet -> cyan  (thinking)
+    listening: [[47, 212, 200], [130, 235, 255]], // turquoise      (absorbing)
+    speaking:  [[242, 179, 61], [236, 116, 45]],  // gold -> ember  (radiating)
+  };
+  const STATUS_TEXT = { idle: 'idle', listening: 'listening…', speaking: 'speaking' };
+
+  // ---- state --------------------------------------------------------------
+  let state = 'idle';
+  let cA = [...PALETTES.idle[0]], cB = [...PALETTES.idle[1]];
+  let energy = 0.25;          // eases toward per-state target
+  let level = 0.5;            // live audio level (0..1)
+  let externalLevel = false;  // true once setLevel() is called by the backend
+  let t = 0;
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  const ENERGY_TARGET = { idle: 0.25, listening: 0.7, speaking: 1.0 };
+
+  // ---- math helpers -------------------------------------------------------
+  const L = (a, b, k) => a + (b - a) * k;
+  const rotY = (p, a) => { const c = Math.cos(a), s = Math.sin(a);
+    return { x: p.x * c + p.z * s, y: p.y, z: -p.x * s + p.z * c }; };
+  const rotX = (p, a) => { const c = Math.cos(a), s = Math.sin(a);
+    return { x: p.x, y: p.y * c - p.z * s, z: p.y * s + p.z * c }; };
+  const rotZ = (p, a) => { const c = Math.cos(a), s = Math.sin(a);
+    return { x: p.x * c - p.y * s, y: p.x * s + p.y * c, z: p.z }; };
+
+  // Simulated audio level, used only until the backend calls setLevel().
+  function simulatedLevel() {
+    if (state === 'listening')
+      return 0.5 + 0.35 * Math.sin(t * 5) + 0.2 * Math.sin(t * 12.3);
+    if (state === 'speaking')
+      return 0.55 + 0.45 * Math.abs(Math.sin(t * 6.2)) * Math.sin(t * 1.7 + 1);
+    return 0.5 + 0.5 * Math.sin(t * 1.1); // idle breathing
+  }
+
+  // ---- render loop --------------------------------------------------------
+  const buf = []; // reused each frame to avoid GC churn
+  function draw() {
+    t += reduced ? 0 : 0.016;
+
+    // ease colors + energy toward current state
+    const pal = PALETTES[state];
+    for (let i = 0; i < 3; i++) {
+      cA[i] = L(cA[i], pal[0][i], 0.05);
+      cB[i] = L(cB[i], pal[1][i], 0.05);
+    }
+    energy = L(energy, ENERGY_TARGET[state], 0.04);
+    const lv = externalLevel ? level : simulatedLevel();
+
+    ctx.clearRect(0, 0, W, H);
+    const spin = t * (0.12 + energy * 0.35);
+    const tilt = 0.35 + 0.05 * Math.sin(t * 0.4);
+    buf.length = 0;
+
+    // core sphere
+    for (const p of core) {
+      let rr = R;
+      if (state === 'speaking') {
+        const lat = Math.asin(p.y);
+        rr = R * (1 + 0.09 * energy * Math.sin(t * 5 - lat * 4 + p.ph * 0.3));
+      } else if (state === 'listening') {
+        rr = R * (1 - 0.10 * energy * lv) + 3 * Math.sin(t * 2 + p.ph);
+      } else {
+        rr = R * (1 + 0.035 * Math.sin(t * 1.1 + p.ph));
+      }
+      let q = rotY({ x: p.x * rr, y: p.y * rr, z: p.z * rr }, spin);
+      q = rotX(q, tilt);
+      buf.push({ q, mix: p.mix, base: 1.5, ring: false });
+    }
+
+    // orbiting rings
+    for (const rg of rings) {
+      const ra = t * rg.spd * (1 + energy * 1.6);
+      const rr = R * rg.rf;
+      for (const d of rg.dots) {
+        const a = d.a + ra;
+        let q = { x: Math.cos(a) * rr, y: 0, z: Math.sin(a) * rr };
+        q = rotX(q, rg.tx + 0.06 * Math.sin(t * 0.5 + d.ph));
+        q = rotZ(q, rg.tz);
+        q = rotX(q, tilt);
+        const pulse = state === 'speaking'
+          ? 1 + 0.25 * energy * Math.sin(t * 6 - a * 3) : 1;
+        q.x *= pulse; q.y *= pulse; q.z *= pulse;
+        buf.push({ q, mix: d.mix, base: 1.2, ring: true });
+      }
+    }
+
+    // painter's sort: far dots first
+    buf.sort((a, b) => a.q.z - b.q.z);
+
+    const zRange = R * 2.2;
+    for (const b of buf) {
+      const s = F / (F + b.q.z);
+      const x = CX + b.q.x * s;
+      const y = CY + b.q.y * s;
+      const depth = (b.q.z + zRange / 2) / zRange; // 0 near, 1 far
+      const m = b.mix;
+      const r = (cA[0] * (1 - m) + cB[0] * m) | 0;
+      const g = (cA[1] * (1 - m) + cB[1] * m) | 0;
+      const bl = (cA[2] * (1 - m) + cB[2] * m) | 0;
+      let al = 0.25 + 0.65 * (1 - depth);
+      if (b.ring) al *= 0.5 + 0.5 * energy * Math.max(lv, 0.3);
+      const sz = (b.base + (b.ring ? 0 : 0.6) + energy * lv * 0.9) * s;
+      ctx.beginPath();
+      ctx.fillStyle = `rgba(${r},${g},${bl},${Math.min(al, 0.95)})`;
+      ctx.arc(x, y, Math.max(sz, 0.5), 0, 6.2832);
+      ctx.fill();
+    }
+    requestAnimationFrame(draw);
+  }
+  draw();
+
+  // ---- public API ---------------------------------------------------------
+  function setState(s) {
+    if (!PALETTES[s]) return console.warn('[SorenaOrb] unknown state:', s);
+    state = s;
+    statusEl.textContent = STATUS_TEXT[s];
+  }
+  function setLevel(v) {
+    externalLevel = true;
+    level = Math.max(0, Math.min(1, v));
+  }
+  return { setState, setLevel };
+})();
+
+/* ---- dev buttons (remove in production) ---------------------------------- */
+document.querySelectorAll('#devbar button').forEach(b =>
+  b.addEventListener('click', () => SorenaOrb.setState(b.dataset.s)));
+
+/* =========================================================================
+   BACKEND HOOK — connects to src/sorena/face.py, a bare `websockets` server
+   run in a background thread from the voice pipeline (see ADR 0009).
+   Reconnects on drop/refused so this page can be opened before the Python
+   process is running, or left open across restarts.
+   ========================================================================= */
+function connectFace() {
+  const ws = new WebSocket('ws://localhost:8765/orb');
+  ws.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    if (msg.state) SorenaOrb.setState(msg.state);
+    if (typeof msg.level === 'number') SorenaOrb.setLevel(msg.level);
+  };
+  ws.onclose = () => {
+    SorenaOrb.setState('idle');
+    setTimeout(connectFace, 2000);
+  };
+  ws.onerror = () => ws.close();
+}
+connectFace();
+</script>
+</body>
+</html>

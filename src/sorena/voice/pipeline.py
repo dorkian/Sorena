@@ -3,7 +3,7 @@ import re
 import threading
 import time
 
-from sorena import agent
+from sorena import agent, face
 from sorena.voice import stt, tts, vad, wakeword
 
 SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
@@ -57,17 +57,26 @@ def speak_naive(text: str) -> float:
 
 def run_voice_turn() -> dict:
     """One full hands-free turn: wake word -> VAD-gated listen -> transcribe
-    -> agent loop (Phase 2) -> streaming TTS response."""
+    -> agent loop (Phase 2) -> streaming TTS response. Pushes state to the
+    orb face (idle/listening/speaking) as the turn progresses -- see
+    src/sorena/face.py and ADR 0009."""
+    face.start()
     wake_latency = wakeword.listen_for_wakeword()
 
+    face.push_state("listening")
     audio = stt.record(5.0)
     if not vad.has_speech(audio):
+        face.push_state("idle")
         tts.speak("I didn't hear anything.")
         return {"wake_latency": wake_latency, "transcript": None, "reply": None}
 
+    face.push_state("idle")  # thinking -- idle's violet->cyan palette covers this
     transcript = stt.transcribe(audio)
     reply = agent.run(transcript)
+
+    face.push_state("speaking")
     time_to_first_audio = speak_streaming(reply)
+    face.push_state("idle")
 
     return {
         "wake_latency": wake_latency,

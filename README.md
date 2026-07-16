@@ -19,6 +19,7 @@ flowchart LR
     MCP --> Servers[External MCP Servers\ne.g. code-graph-mcp]
     Agent --> Voice[Voice Pipeline\nfaster-whisper + Piper]
     Voice --> User
+    Voice -->|state pushes| Face[Orb Face\nweb/orb.html over WebSocket]
 ```
 
 ## Roadmap
@@ -170,6 +171,18 @@ streaming is 4.2x faster to first audio
 has_speech (silence): False
 has_speech (speech): True
 ```
+
+## Demo: orb face
+
+A visual face for the voice pipeline: `web/orb.html` is a self-contained canvas particle-sphere (no build step, no dependencies) that shifts palette and motion with agent state — violet→cyan while idle/thinking, turquoise while listening, gold while speaking. `src/sorena/face.py` pushes state over a local WebSocket as `run_voice_turn()` (`pipeline.py`) progresses, using the same background-thread async-bridge pattern as the MCP client (ADR 0004) — see [ADR 0009](docs/adr/0009-orb-face-bare-websockets-background-thread.md) for why a bare `websockets` server instead of a web framework.
+
+```bash
+uv run python examples/demo_face.py   # cycles every state without needing real mic/speaker hardware
+```
+
+Open `web/orb.html` directly in a browser (`file://`, no server needed for the page itself) while that's running. It reconnects automatically if opened before Sorena starts.
+
+`push_state()` never blocks the pipeline — no browser tab open is a no-op, not an error.
 
 ## Demo: memory & RAG
 
