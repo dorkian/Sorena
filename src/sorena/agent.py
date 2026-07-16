@@ -1,12 +1,19 @@
+import time
 from datetime import UTC, datetime
 
-from sorena import router
+from sorena import router, trace
 from sorena.long_term_memory import LongTermMemory
 from sorena.memory import ConversationMemory
 from sorena.tools import TOOL_SCHEMAS, call_tool
 from sorena.tools.registry import UnknownToolError
 
 MAX_HOPS = 8
+
+# Trace step results are truncated before writing to traces/runs.jsonl so a
+# single verbose tool result (e.g. a long web-search dump) doesn't balloon
+# the trace file -- the full result is still what the LLM sees, just not
+# what gets persisted for observability.
+TRACE_RESULT_MAX_CHARS = 500
 
 
 class MaxHopsExceededError(Exception):
@@ -17,19 +24,36 @@ def run(
     user_message: str,
     memory: ConversationMemory | None = None,
     long_term: LongTermMemory | None = None,
+    _eval_case: str | None = None,
+    _eval_case_type: str | None = None,
 ) -> str:
     memory = memory or ConversationMemory()
     long_term = long_term or LongTermMemory()
+    start = time.perf_counter()
+    steps: list[dict] = []
+
+    def log_trace(final_answer: str | None, hops: int) -> None:
+        trace.log_run(
+            user_input=user_message,
+            steps=steps,
+            final_answer=final_answer,
+            tokens_total=memory.token_count(),
+            latency_ms=(time.perf_counter() - start) * 1000,
+            hops=hops,
+            eval_case=_eval_case,
+            eval_case_type=_eval_case_type,
+        )
 
     memory.add({"role": "user", "content": user_message})
     long_term.add_turn("user", user_message, datetime.now(UTC).isoformat())
 
-    for _ in range(MAX_HOPS):
+    for hop in range(MAX_HOPS):
         response = router.chat(memory.messages, tools=TOOL_SCHEMAS)
 
         if isinstance(response, str):
             memory.add({"role": "assistant", "content": response})
             long_term.add_turn("assistant", response, datetime.now(UTC).isoformat())
+            log_trace(response, hop + 1)
             return response
 
         # normalize to a plain OpenAI-shape dict before appending -- the raw
@@ -60,6 +84,13 @@ def run(
             except Exception as e:
                 result = f"Error running tool '{name}': {e}"
 
+            steps.append(
+                {
+                    "tool": name,
+                    "args": tool_call.function.arguments,
+                    "result": str(result)[:TRACE_RESULT_MAX_CHARS],
+                }
+            )
             memory.add(
                 {
                     "role": "tool",
@@ -68,4 +99,5 @@ def run(
                 }
             )
 
+    log_trace(None, MAX_HOPS)
     raise MaxHopsExceededError(f"Agent did not resolve in {MAX_HOPS} hops")

@@ -1,6 +1,6 @@
 [project]
 name = "sorena"
-version = "0.5.0"
+version = "1.0.0"
 description = "Local-first, zero-cost Jarvis-style AI assistant"
 authors = [
     { name = "dorkianaico-creator", email = "dorkian.ai.co@gmail.com" }

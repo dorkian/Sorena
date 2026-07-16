@@ -17,6 +17,9 @@ class FakeEmbeddingModel:
 def _fake_long_term_memory(tmp_path, monkeypatch):
     monkeypatch.setattr("sorena.long_term_memory._get_model", lambda: FakeEmbeddingModel())
     monkeypatch.setattr(agent, "LongTermMemory", lambda: LongTermMemory(tmp_path / "memory.db"))
+    # keep these mocked-response tests out of the real traces/runs.jsonl --
+    # that file is for genuine usage + the eval suite, not unit-test noise
+    monkeypatch.setattr(agent.trace, "LOG_PATH", tmp_path / "runs.jsonl")
 
 
 class FakeToolCallFunction:

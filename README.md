@@ -20,6 +20,8 @@ flowchart LR
     Agent --> Voice[Voice Pipeline\nfaster-whisper + Piper]
     Voice --> User
     Voice -->|state pushes| Face[Orb Face\nweb/orb.html over WebSocket]
+    Agent -->|every run| Trace[traces/runs.jsonl]
+    Trace --> Evals[Eval Suite\ntests/evals/]
 ```
 
 ## Roadmap
@@ -215,6 +217,60 @@ hybrid:      10/10 correct
 vector-only: 9/10 correct
 avg recall latency: 19.2 ms
 ```
+
+## Demo: evals & observability
+
+Every `agent.run()` call writes a structured trace — steps taken, tools called, tokens used, latency — to `traces/runs.jsonl`, reusing the JSONL-to-`traces/` pattern Phase 1's `telemetry.py` already established rather than inventing a second logging mechanism. A 23-case eval suite (`tests/evals/`) runs the real agent loop against each case and checks it against that same trace record, so the suite doubles as an integration test of the tracing feature itself.
+
+The suite has two tiers — see [ADR 0010](docs/adr/0010-eval-suite-scripted-plus-live-tiers.md) for the full reasoning:
+
+- **Deterministic** (14 cases, CI-gated): the LLM's decision at each hop is scripted, testing the agent loop's orchestration mechanics — correct dispatch, error recovery, trace capture — with no network call and no possibility of flaking. Most are regression cases mined from real bugs hit in Phases 2, 3, and 5 (unknown-tool handling, the `json.loads("null")` crash, the MCP zero-special-casing guarantee, the Phase 5 RRF candidate-pool bug).
+- **Live** (9 cases, skip-gated): real calls through the actual provider chain, testing genuine tool-selection judgment — something a scripted case can't evaluate, since it would just be re-checking what it scripted itself. Skipped automatically when no provider API key is configured (e.g. in CI).
+
+```bash
+uv run pytest tests/evals/
+```
+
+Real captured run, both tiers, all real API keys configured locally:
+
+```
+23 passed in 58.59s
+```
+
+**Regression detection, proven, not just claimed:** the `isinstance` guard in `tools/registry.py` that fixed a real Phase 2 bug (`json.loads("null")` returning `None`, then crashing as `**None` on a no-arg tool call) was deliberately removed, and the suite re-run:
+
+```
+tests/evals/test_evals.py::test_eval_case[null_string_args_does_not_crash] FAILED
+...
+tests/evals/test_evals.py::test_eval_case[trace_step_captures_real_tool_output] PASSED
+...
+1 failed, 22 passed in 47.55s
+
+FAILED: expected the tool call to succeed, but it errored: "Error running tool
+'get_current_time': Invalid arguments for 'get_current_time': sorena.tools.time_tool.run()
+argument after ** must be a mapping, not NoneType"
+```
+
+One specific, named case failed with a precise, traceable error — every other case, including a sibling case exercising the same tool, was unaffected. The guard was then restored (`git diff` confirms a byte-identical revert) and the full suite passes again.
+
+**Summary script** — reads `traces/runs.jsonl`, reports pass rate, tool-selection accuracy (live-tier cases), and latency percentiles. A dashboard is explicitly out of scope per the spec; this printed report is the deliverable:
+
+```bash
+uv run python examples/eval_summary.py
+```
+
+```
+=== traces/runs.jsonl summary (23 runs) ===
+
+Latency: p50=43ms  p95=4688ms  max=6268ms
+
+Eval pass rate: 23/23 (100%)
+Tool-selection accuracy (live cases): 9/9 (100%)
+```
+
+**CI gate:** the deterministic tier runs on every push/PR as part of the normal `uv run pytest` step — no separate CI step needed. The threshold is 100%, enforced by pytest's own exit code: every deterministic case is fully scripted with no real-world variance, so a failure means something genuinely broke, not model flakiness (see ADR 0010).
+
+**Adding a new eval case:** append an `EvalCase` to `tests/evals/cases.py`. A deterministic case needs a `script` (see `tests/evals/harness.py`'s `tool_call`/`tool_calls`/`final` helpers) and at least one `expect_*` assertion; a live case just needs a `user_message`, `live=True`, and what to check for. Prefer mining a case from a real bug over inventing a synthetic one — see the Methodology note in [the spec](docs/specs/phase-6-evals-observability.md).
 
 ## Development
 
