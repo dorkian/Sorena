@@ -1,6 +1,22 @@
+import numpy as np
 import pytest
 
 from sorena import agent
+from sorena.long_term_memory import LongTermMemory
+
+
+class FakeEmbeddingModel:
+    """Deterministic stand-in so agent tests don't download a real
+    sentence-transformers model or touch the real long-term memory DB."""
+
+    def encode(self, text, normalize_embeddings=True):
+        return np.zeros(8, dtype=np.float32)
+
+
+@pytest.fixture(autouse=True)
+def _fake_long_term_memory(tmp_path, monkeypatch):
+    monkeypatch.setattr("sorena.long_term_memory._get_model", lambda: FakeEmbeddingModel())
+    monkeypatch.setattr(agent, "LongTermMemory", lambda: LongTermMemory(tmp_path / "memory.db"))
 
 
 class FakeToolCallFunction:

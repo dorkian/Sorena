@@ -171,6 +171,38 @@ has_speech (silence): False
 has_speech (speech): True
 ```
 
+## Demo: memory & RAG
+
+Long-term memory that survives across sessions — unlike Phase 2's `ConversationMemory` (a rolling in-session window that eventually summarizes old turns away), `long_term_memory.py` persists every turn to SQLite and recalls it later by **hybrid search**: FTS5 keyword matching + sentence-transformers embedding similarity, combined with reciprocal rank fusion. Exposed to the agent loop as a `recall_memory` tool — see [ADR 0008](docs/adr/0008-conversation-turn-as-chunk-unit.md) for the chunking (one turn = one chunk) and storage (SQLite over a dedicated vector DB) rationale.
+
+```bash
+uv run python examples/demo_memory_recall.py
+```
+
+Real captured run — a turn from "last week" is seeded directly into long-term memory, then the agent is asked about it with zero other context and no hint that a memory tool exists:
+
+```
+User: What did I ask you about my passport last week?
+
+Agent: You asked about renewing your passport before your trip to Japan in September.
+```
+
+That answer isn't in the fresh conversation window at all — it only exists in long-term memory, so a correct, specific reply proves `recall_memory` actually fired and pulled the right past turn.
+
+**Hybrid search beats vector-only search** — a 10-query benchmark against a seeded conversation history, including a deliberately adversarial case: two near-duplicate turns ("PIN for the storage locker is 7734" / "PIN for the bike lock is 4821") plus a Docker error turn, queried by the bare number alone (`"137"`). A short, mostly-numeric query barely moves a semantic embedding, so vector-only search picks the wrong turn; FTS5's exact-token match rescues it once fused in:
+
+```bash
+uv run python examples/benchmark_memory_recall.py
+```
+
+```
+[OK  ] '137' -> Docker build is failing with exit code 137, probably OOM killed. <- hybrid caught what vector-only missed
+
+hybrid:      10/10 correct
+vector-only: 9/10 correct
+avg recall latency: 19.2 ms
+```
+
 ## Development
 
 - Spec-first: every phase has a spec in `docs/specs/` before code is written

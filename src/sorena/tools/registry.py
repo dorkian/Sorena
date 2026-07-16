@@ -1,12 +1,13 @@
 import json
 
-from sorena.tools import file_search_tool, shell_tool, time_tool, web_search_tool
+from sorena.tools import file_search_tool, recall_tool, shell_tool, time_tool, web_search_tool
 
 TOOLS = {
     "get_current_time": time_tool.run,
     "search_files": file_search_tool.run,
     "web_search": web_search_tool.run,
     "run_shell_command": shell_tool.run,
+    "recall_memory": recall_tool.run,
 }
 
 TOOL_SCHEMAS = [
@@ -14,6 +15,7 @@ TOOL_SCHEMAS = [
     file_search_tool.SCHEMA,
     web_search_tool.SCHEMA,
     shell_tool.SCHEMA,
+    recall_tool.SCHEMA,
 ]
 
 

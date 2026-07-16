@@ -25,6 +25,11 @@ wheels/
 models/
 traces/
 
+# Exception: the small (~200KB) custom-trained wake word model is committed —
+# unlike downloaded voice/STT weights, it can't be re-fetched, only retrained
+!models/wakeword/
+!models/wakeword/*.onnx
+
 # Local voice-pipeline test recordings (Phase 4 diagnostics)
 *.wav
 
@@ -36,3 +41,6 @@ Thumbs.db
 
 # Local code-graph tool output (generated)
 .codegraph/
+
+# Long-term memory DB (Phase 5) — local conversation history, not shareable
+data/

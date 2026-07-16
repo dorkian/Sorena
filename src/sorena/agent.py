@@ -1,4 +1,7 @@
+from datetime import UTC, datetime
+
 from sorena import router
+from sorena.long_term_memory import LongTermMemory
 from sorena.memory import ConversationMemory
 from sorena.tools import TOOL_SCHEMAS, call_tool
 from sorena.tools.registry import UnknownToolError
@@ -10,15 +13,23 @@ class MaxHopsExceededError(Exception):
     pass
 
 
-def run(user_message: str, memory: ConversationMemory | None = None) -> str:
+def run(
+    user_message: str,
+    memory: ConversationMemory | None = None,
+    long_term: LongTermMemory | None = None,
+) -> str:
     memory = memory or ConversationMemory()
+    long_term = long_term or LongTermMemory()
+
     memory.add({"role": "user", "content": user_message})
+    long_term.add_turn("user", user_message, datetime.now(UTC).isoformat())
 
     for _ in range(MAX_HOPS):
         response = router.chat(memory.messages, tools=TOOL_SCHEMAS)
 
         if isinstance(response, str):
             memory.add({"role": "assistant", "content": response})
+            long_term.add_turn("assistant", response, datetime.now(UTC).isoformat())
             return response
 
         # normalize to a plain OpenAI-shape dict before appending -- the raw
