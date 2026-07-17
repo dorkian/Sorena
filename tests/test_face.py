@@ -33,3 +33,24 @@ def test_push_state_delivers_to_a_connected_client():
 
     assert received
     assert json.loads(received[0]) == {"state": "speaking", "level": 0.8}
+
+
+def test_chat_message_routes_to_orchestrator_and_pushes_transcript(monkeypatch):
+    import sorena.agents.orchestrator as orchestrator
+
+    monkeypatch.setattr(orchestrator, "run", lambda text: f"echo: {text}")
+    face.start()
+    received = []
+
+    async def client():
+        async with websockets.connect(f"ws://localhost:{face.PORT}/orb") as ws:
+            await ws.send(json.dumps({"type": "chat", "text": "hello"}))
+            # expect: user turn, idle state, assistant turn, idle state
+            for _ in range(4):
+                received.append(json.loads(await asyncio.wait_for(ws.recv(), timeout=5)))
+
+    asyncio.run(client())
+
+    turns = [m for m in received if m.get("type") == "turn"]
+    assert {"type": "turn", "role": "user", "text": "hello"} in turns
+    assert {"type": "turn", "role": "assistant", "text": "echo: hello"} in turns

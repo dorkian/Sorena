@@ -25,6 +25,98 @@ def test_split_sentences_drops_empty_fragments():
     assert pipeline.split_sentences(text) == ["One.", "Two."]
 
 
+def test_strip_markdown_removes_bold_and_italic():
+    assert pipeline.strip_markdown_for_speech("This is **bold** and *italic* text.") == (
+        "This is bold and italic text."
+    )
+    assert (
+        pipeline.strip_markdown_for_speech("__bold__ and _italic_ too.") == "bold and italic too."
+    )
+
+
+def test_strip_markdown_removes_headers():
+    assert pipeline.strip_markdown_for_speech("## Section\nBody text.") == "Section\nBody text."
+    assert pipeline.strip_markdown_for_speech("# Title") == "Title"
+
+
+def test_strip_markdown_removes_bullets_but_keeps_numbered_list_numbers():
+    result = pipeline.strip_markdown_for_speech("- item one\n- item two\n1. First\n2. Second")
+    assert result == "item one\nitem two\n1. First\n2. Second"
+
+
+def test_strip_markdown_unwraps_links_to_their_text():
+    result = pipeline.strip_markdown_for_speech("See [the docs](https://example.com/docs) here.")
+    assert result == "See the docs here."
+
+
+def test_strip_markdown_unwraps_inline_code():
+    assert (
+        pipeline.strip_markdown_for_speech("Run `pytest -q` to test.") == "Run pytest -q to test."
+    )
+
+
+def test_strip_markdown_replaces_fenced_code_blocks_with_placeholder():
+    text = "Here:\n```python\nprint('hi')\n```\nDone."
+    assert pipeline.strip_markdown_for_speech(text) == "Here:\n(code omitted)\nDone."
+
+
+def test_strip_markdown_removes_horizontal_rules():
+    result = pipeline.strip_markdown_for_speech("Before\n---\nAfter")
+    assert "---" not in result
+    assert "Before" in result and "After" in result
+
+
+def test_strip_markdown_removes_blockquote_markers():
+    assert pipeline.strip_markdown_for_speech("> quoted wisdom") == "quoted wisdom"
+
+
+def test_strip_markdown_handles_realistic_mixed_reply():
+    reply = (
+        "## Match Score\n"
+        "**Overall: 86/100**\n"
+        "- Strong Python skills\n"
+        "- Missing `LangGraph` experience\n"
+        "See [the posting](https://example.com/job) for details."
+    )
+    result = pipeline.strip_markdown_for_speech(reply)
+    assert "#" not in result
+    assert "*" not in result
+    assert "`" not in result
+    assert "[" not in result and "](" not in result
+    assert "Match Score" in result
+    assert "Overall: 86/100" in result
+    assert "Strong Python skills" in result
+    assert "LangGraph" in result
+    assert "the posting" in result
+
+
+def test_run_voice_turn_strips_markdown_before_speaking_but_not_before_pushing_turn(monkeypatch):
+    monkeypatch.setattr(pipeline.wakeword, "listen_for_wakeword", lambda: 0.05)
+    monkeypatch.setattr(pipeline.stt, "record", lambda seconds: "audio")
+    monkeypatch.setattr(pipeline.vad, "has_speech", lambda audio: True)
+    monkeypatch.setattr(pipeline.stt, "transcribe", lambda audio: "how did I do")
+    monkeypatch.setattr(
+        pipeline.agent,
+        "run",
+        lambda message, system_prompt=None, tool_names=None: "You scored **86/100**.",
+    )
+
+    spoken = []
+    monkeypatch.setattr(pipeline, "speak_streaming", lambda text: spoken.append(text) or 0.2)
+
+    pushed_turns = []
+    monkeypatch.setattr(
+        pipeline.face,
+        "push_turn",
+        lambda role, text, agent=None: pushed_turns.append((role, text)),
+    )
+
+    pipeline.run_voice_turn()
+
+    assert spoken == ["You scored 86/100."]
+    assert ("assistant", "You scored **86/100**.") in pushed_turns
+
+
 def test_speak_streaming_synthesizes_and_plays_each_sentence(monkeypatch):
     synthesize_calls = []
     play_calls = []
@@ -79,7 +171,9 @@ def test_run_voice_turn_full_happy_path(monkeypatch):
     monkeypatch.setattr(pipeline.stt, "record", lambda seconds: "audio")
     monkeypatch.setattr(pipeline.vad, "has_speech", lambda audio: True)
     monkeypatch.setattr(pipeline.stt, "transcribe", lambda audio: "what time is it")
-    monkeypatch.setattr(pipeline.agent, "run", lambda message: "It is noon.")
+    monkeypatch.setattr(
+        pipeline.agent, "run", lambda message, system_prompt=None, tool_names=None: "It is noon."
+    )
     monkeypatch.setattr(pipeline, "speak_streaming", lambda text: 0.2)
 
     result = pipeline.run_voice_turn()
@@ -87,3 +181,48 @@ def test_run_voice_turn_full_happy_path(monkeypatch):
     assert result["transcript"] == "what time is it"
     assert result["reply"] == "It is noon."
     assert result["time_to_first_audio"] == 0.2
+
+
+def test_run_voice_turn_passes_system_prompt_and_tool_names_to_agent(monkeypatch):
+    monkeypatch.setattr(pipeline.wakeword, "listen_for_wakeword", lambda: 0.05)
+    monkeypatch.setattr(pipeline.stt, "record", lambda seconds: "audio")
+    monkeypatch.setattr(pipeline.vad, "has_speech", lambda audio: True)
+    monkeypatch.setattr(pipeline.stt, "transcribe", lambda audio: "quiz me")
+    monkeypatch.setattr(pipeline, "speak_streaming", lambda text: 0.2)
+
+    captured = {}
+
+    def fake_agent_run(message, system_prompt=None, tool_names=None):
+        captured["system_prompt"] = system_prompt
+        captured["tool_names"] = tool_names
+        return "reply"
+
+    monkeypatch.setattr(pipeline.agent, "run", fake_agent_run)
+
+    pipeline.run_voice_turn(system_prompt="you are Rostam", tool_names=["save_interview_score"])
+
+    assert captured["system_prompt"] == "you are Rostam"
+    assert captured["tool_names"] == ["save_interview_score"]
+
+
+def test_run_voice_turn_pushes_persona_to_the_face_at_every_state(monkeypatch):
+    monkeypatch.setattr(pipeline.wakeword, "listen_for_wakeword", lambda: 0.05)
+    monkeypatch.setattr(pipeline.stt, "record", lambda seconds: "audio")
+    monkeypatch.setattr(pipeline.vad, "has_speech", lambda audio: True)
+    monkeypatch.setattr(pipeline.stt, "transcribe", lambda audio: "hi")
+    monkeypatch.setattr(
+        pipeline.agent, "run", lambda message, system_prompt=None, tool_names=None: "hello"
+    )
+    monkeypatch.setattr(pipeline, "speak_streaming", lambda text: 0.2)
+
+    pushed_agents = []
+    monkeypatch.setattr(
+        pipeline.face,
+        "push_state",
+        lambda state, agent=None: pushed_agents.append(agent),
+    )
+
+    persona = {"name": "Rostam", "color": "#D9534F", "icon": "interviewer.svg"}
+    pipeline.run_voice_turn(persona=persona)
+
+    assert pushed_agents == [persona] * 4  # listening, idle (thinking), speaking, idle

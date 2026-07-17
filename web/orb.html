@@ -56,6 +56,7 @@
 <div id="stage">
   <canvas id="orb"></canvas>
   <div id="status">idle</div>
+  <img id="agent-icon" alt="" style="display:none; position:absolute; bottom:56px; left:0; right:0; margin:0 auto; width:32px; height:32px; filter:drop-shadow(0 0 6px rgba(0,0,0,0.4));" />
   <div id="devbar">
     <button data-s="idle">Idle</button>
     <button data-s="listening">Listening</button>
@@ -146,6 +147,7 @@ const SorenaOrb = (() => {
 
   // ---- state --------------------------------------------------------------
   let state = 'idle';
+  let agentColor = null; // [r,g,b] from the active persona, or null for the plain state palette
   let cA = [...PALETTES.idle[0]], cB = [...PALETTES.idle[1]];
   let energy = 0.25;          // eases toward per-state target
   let level = 0.5;            // live audio level (0..1)
@@ -178,8 +180,10 @@ const SorenaOrb = (() => {
   function draw() {
     t += reduced ? 0 : 0.016;
 
-    // ease colors + energy toward current state
-    const pal = PALETTES[state];
+    // ease colors + energy toward current state -- an active persona's color
+    // (if any) replaces the palette's first stop, so the orb tints toward
+    // the agent currently speaking while keeping the state's motion/energy.
+    const pal = agentColor ? [agentColor, PALETTES[state][1]] : PALETTES[state];
     for (let i = 0; i < 3; i++) {
       cA[i] = L(cA[i], pal[0][i], 0.05);
       cB[i] = L(cB[i], pal[1][i], 0.05);
@@ -260,7 +264,18 @@ const SorenaOrb = (() => {
     externalLevel = true;
     level = Math.max(0, Math.min(1, v));
   }
-  return { setState, setLevel };
+  function setAgentColor(hex) {
+    if (!hex) { agentColor = null; return; }
+    const n = parseInt(hex.replace('#', ''), 16);
+    agentColor = [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  }
+  function setAgentIcon(filename) {
+    const el = document.getElementById('agent-icon');
+    if (!filename) { el.style.display = 'none'; return; }
+    el.src = `icons/${filename}`;
+    el.style.display = 'block';
+  }
+  return { setState, setLevel, setAgentColor, setAgentIcon };
 })();
 
 /* ---- dev buttons (remove in production) ---------------------------------- */
@@ -279,6 +294,8 @@ function connectFace() {
     const msg = JSON.parse(e.data);
     if (msg.state) SorenaOrb.setState(msg.state);
     if (typeof msg.level === 'number') SorenaOrb.setLevel(msg.level);
+    if (msg.agent && msg.agent.color) SorenaOrb.setAgentColor(msg.agent.color);
+    if (msg.agent) SorenaOrb.setAgentIcon(msg.agent.icon);
   };
   ws.onclose = () => {
     SorenaOrb.setState('idle');

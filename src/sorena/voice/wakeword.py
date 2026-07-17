@@ -1,14 +1,28 @@
+from pathlib import Path
+
 import numpy as np
 import sounddevice as sd
 from openwakeword.model import Model
 from openwakeword.utils import download_models
 from scipy.signal import resample_poly
 
-WAKEWORD_NAME = "hey_jarvis"
+# training/hey_sorena_training.ipynb can produce a custom model at this path;
+# until it exists, _get_model() falls back to openWakeWord's pretrained
+# hey_jarvis model -- the one this project actually shipped and tuned
+# (ADR 0006) -- so voice mode works out of the box either way.
+CUSTOM_MODEL_PATH = (
+    Path(__file__).parent.parent.parent.parent / "models" / "wakeword" / "hey_sorena.onnx"
+)
+PRETRAINED_WAKEWORD_NAME = "hey_jarvis"
+WAKEWORD_NAME = (
+    PRETRAINED_WAKEWORD_NAME  # resolved for real by _get_model(); read it after calling that
+)
 SAMPLE_RATE = 16000
 CHUNK_SAMPLES = 1280  # openWakeWord's native 80ms frame size at 16kHz
 WINDOW_SECONDS = 1.5  # length of each polled recording -- see listen_for_wakeword
-THRESHOLD = 0.3  # tuned against real measured live-voice scores -- see listen_for_wakeword
+THRESHOLD = 0.3  # tuned against real measured live-voice scores for the pretrained hey_jarvis
+# model (ADR 0006). Retune if/when a trained hey_sorena.onnx gets dropped in --
+# see diagnose_wakeword_recorded.py.
 
 _model: Model | None = None
 
@@ -21,10 +35,15 @@ def _wasapi_input_device() -> int:
 
 
 def _get_model() -> Model:
-    global _model
+    global _model, WAKEWORD_NAME
     if _model is None:
-        download_models([WAKEWORD_NAME])
-        _model = Model(wakeword_models=[WAKEWORD_NAME], inference_framework="onnx")
+        if CUSTOM_MODEL_PATH.exists():
+            WAKEWORD_NAME = "hey_sorena"
+            _model = Model(wakeword_models=[str(CUSTOM_MODEL_PATH)], inference_framework="onnx")
+        else:
+            WAKEWORD_NAME = PRETRAINED_WAKEWORD_NAME
+            download_models([PRETRAINED_WAKEWORD_NAME])
+            _model = Model(wakeword_models=[PRETRAINED_WAKEWORD_NAME], inference_framework="onnx")
     return _model
 
 
@@ -61,11 +80,11 @@ def listen_for_wakeword() -> float:
     confirmed by direct comparison). Something about sustained continuous
     capture -- buffer timing, or driver-level behavior on this Realtek SST
     hardware -- degrades real speech in a way a short, clean, one-shot
-    recording doesn't. THRESHOLD is set below that measured 0.38 (and well
-    above the ~0.008 noise floor), since 0.5 is too optimistic for real
-    voices on this hardware/model combination -- pretrained wake-word
-    models have real accuracy limits on atypical voices/environments,
-    which is exactly why the spec scopes out training a custom one for v1."""
+    recording doesn't. That 0.38/0.008 pair was measured against the
+    pretrained hey_jarvis model (ADR 0006). If a custom-trained hey_sorena
+    model is dropped in later (see _get_model()), THRESHOLD must be
+    re-measured the same way against its own real score distribution --
+    see diagnose_wakeword_recorded.py."""
     model = _get_model()
     device = _wasapi_input_device()
     device_rate = int(sd.query_devices(device)["default_samplerate"])

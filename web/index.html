@@ -1,0 +1,681 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sorena</title>
+<style>
+  /* ------------------------------------------------------------------
+     Sorena command room. Dark ambient surface (this runs on a second
+     monitor in a dim room); persona colors are the only accents and
+     always mean "this agent is active". Local-first: system fonts,
+     zero network requests. Tokens in OKLCH.
+     ------------------------------------------------------------------ */
+  :root {
+    --bg:        oklch(0.17 0.02 265);  /* Persian-night blue-black */
+    --panel:     oklch(0.21 0.02 265);
+    --panel-2:   oklch(0.24 0.02 265);
+    --border:    oklch(0.32 0.02 265);
+    --ink:       oklch(0.93 0.01 265);
+    --ink-soft:  oklch(0.78 0.02 265);  /* ≥4.5:1 on --panel */
+    --accent:    oklch(0.80 0.14 80);   /* Sorena gold #F2B33D */
+    --accent-ink: oklch(0.22 0.04 80);
+    --danger:    oklch(0.68 0.16 25);
+    --ok:        oklch(0.75 0.13 165);
+    --radius: 10px;
+    --z-toast: 30;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font: 15px/1.5 system-ui, "Segoe UI", sans-serif;
+    overflow: hidden;
+  }
+
+  #app {
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) minmax(340px, 480px);
+    height: 100%;
+  }
+
+  /* ---- stage (orb) ------------------------------------------------- */
+  #stage {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-width: 0;
+    padding: 24px;
+    gap: 4px;
+  }
+  #orbwrap { position: relative; flex: 1; width: 100%; min-height: 0;
+             display: flex; align-items: center; justify-content: center; }
+  canvas { display: block; }
+  #identity { text-align: center; padding-bottom: 8px; user-select: none; }
+  #identity-row {
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+  }
+  #agent-icon {
+    width: 30px; height: 30px;
+    filter: drop-shadow(0 0 6px rgba(0, 0, 0, 0.35));
+    transition: filter 200ms ease-out;
+  }
+  #agent-name {
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    margin: 0;
+    text-align: left;
+  }
+  #agent-role { color: var(--ink-soft); font-size: 13px; min-height: 20px; text-align: left; }
+  #state-line {
+    display: inline-flex; align-items: center; gap: 8px;
+    margin-top: 10px;
+    color: var(--ink-soft);
+    font-size: 14px;
+    letter-spacing: 0.03em;
+    transition: color 200ms ease-out;
+  }
+  #state-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: currentColor;
+    transition: background 200ms ease-out;
+  }
+  #state-line.listening { color: oklch(0.82 0.11 190); }
+  #state-line.speaking  { color: var(--accent); }
+
+  /* ---- persona roster ---------------------------------------------- */
+  #roster {
+    display: flex; flex-wrap: wrap; justify-content: center;
+    gap: 8px; padding: 16px 0 4px;
+  }
+  .persona {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 5px 12px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--ink-soft);
+    font-size: 13px;
+    background: transparent;
+    transition: border-color 200ms ease-out, color 200ms ease-out,
+                background 200ms ease-out;
+    user-select: none;
+  }
+  .persona img {
+    width: 15px; height: 15px;
+    opacity: 0.6;
+    transition: opacity 200ms ease-out;
+  }
+  .persona.active img { opacity: 1; }
+  .persona.active {
+    color: var(--ink);
+    border-color: var(--p-color);
+    background: color-mix(in oklch, var(--p-color) 14%, transparent);
+  }
+
+  /* ---- conversation panel ------------------------------------------ */
+  #panel {
+    display: flex; flex-direction: column;
+    min-height: 0;
+    background: var(--panel);
+    border-left: 1px solid var(--border);
+  }
+  #panel-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
+  }
+  #panel-head h1 { font-size: 14px; font-weight: 600; margin: 0; letter-spacing: 0.02em; }
+  #conn {
+    display: inline-flex; align-items: center; gap: 7px;
+    font-size: 12.5px; color: var(--ink-soft);
+  }
+  #conn .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--danger);
+               transition: background 200ms ease-out; }
+  #conn.live .dot { background: var(--ok); }
+
+  #transcript {
+    flex: 1; min-height: 0;
+    overflow-y: auto;
+    padding: 18px;
+    display: flex; flex-direction: column; gap: 14px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+  .turn { max-width: 85%; }
+  .turn.user { align-self: flex-end; }
+  .turn.assistant { align-self: flex-start; }
+  .turn .who {
+    display: flex; align-items: center; gap: 5px;
+    font-size: 12px; font-weight: 600;
+    margin: 0 0 4px 2px;
+    color: var(--ink-soft);
+  }
+  .turn.assistant .who { color: var(--who-color, var(--ink-soft)); }
+  .turn .who img { width: 13px; height: 13px; }
+  .turn .body {
+    padding: 9px 13px;
+    border-radius: var(--radius);
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+  }
+  .turn.user .body { background: var(--panel-2); border: 1px solid var(--border); }
+  .turn.assistant .body {
+    background: color-mix(in oklch, var(--who-color, var(--border)) 9%, var(--panel));
+    border: 1px solid color-mix(in oklch, var(--who-color, var(--border)) 35%, var(--border));
+  }
+
+  /* ---- rendered markdown inside a turn body -------------------------- */
+  .turn .body p { margin: 0 0 8px; }
+  .turn .body p:last-child { margin-bottom: 0; }
+  .turn .body h1, .turn .body h2, .turn .body h3,
+  .turn .body h4, .turn .body h5, .turn .body h6 {
+    margin: 10px 0 6px; font-weight: 600; line-height: 1.3;
+  }
+  .turn .body h1:first-child, .turn .body h2:first-child, .turn .body h3:first-child {
+    margin-top: 0;
+  }
+  .turn .body h1 { font-size: 17px; }
+  .turn .body h2 { font-size: 16px; }
+  .turn .body h3, .turn .body h4, .turn .body h5, .turn .body h6 { font-size: 15px; }
+  .turn .body ul, .turn .body ol { margin: 4px 0 8px; padding-left: 20px; }
+  .turn .body li { margin: 2px 0; }
+  .turn .body code {
+    background: color-mix(in oklch, var(--ink) 12%, transparent);
+    padding: 1px 5px; border-radius: 4px; font-size: 0.9em;
+    font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  }
+  .turn .body pre {
+    background: color-mix(in oklch, var(--ink) 8%, transparent);
+    border: 1px solid var(--border);
+    border-radius: 6px; padding: 8px 10px; overflow-x: auto; margin: 6px 0;
+  }
+  .turn .body pre code { background: none; padding: 0; }
+  .turn .body blockquote {
+    margin: 6px 0; padding-left: 10px;
+    border-left: 2px solid color-mix(in oklch, var(--who-color, var(--border)) 60%, var(--border));
+    color: var(--ink-soft);
+  }
+  .turn .body hr { border: none; border-top: 1px solid var(--border); margin: 8px 0; }
+  .turn .body a { color: var(--who-color, var(--accent)); text-decoration: underline; }
+  .turn .body strong { font-weight: 700; }
+  .turn.entering { animation: rise 180ms ease-out; }
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: none; }
+  }
+  .thinking .body { color: var(--ink-soft); font-style: italic; }
+
+  #empty {
+    margin: auto; text-align: center; color: var(--ink-soft);
+    max-width: 34ch; font-size: 14px;
+  }
+  #empty strong { color: var(--ink); font-weight: 600; }
+
+  /* ---- composer ----------------------------------------------------- */
+  #composer {
+    display: flex; gap: 10px; align-items: flex-end;
+    padding: 14px 18px 18px;
+    border-top: 1px solid var(--border);
+  }
+  #input {
+    flex: 1;
+    resize: none;
+    max-height: 130px;
+    background: var(--panel-2);
+    color: var(--ink);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 9px 12px;
+    font: inherit;
+    line-height: 1.4;
+  }
+  #input::placeholder { color: var(--ink-soft); }
+  #input:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
+  #send {
+    background: var(--accent);
+    color: var(--accent-ink);
+    border: none;
+    border-radius: var(--radius);
+    padding: 9px 18px;
+    font: inherit; font-weight: 600;
+    cursor: pointer;
+    transition: filter 150ms ease-out;
+  }
+  #send:hover:not(:disabled) { filter: brightness(1.08); }
+  #send:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  #send:disabled { opacity: 0.45; cursor: not-allowed; }
+  #offline-hint {
+    display: none;
+    padding: 8px 18px 0;
+    font-size: 12.5px;
+    color: var(--ink-soft);
+  }
+  #offline-hint code {
+    background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 5px; padding: 1px 6px; font-size: 12px;
+  }
+  body.offline #offline-hint { display: block; }
+
+  /* ---- responsive ---------------------------------------------------- */
+  @media (max-width: 860px) {
+    #app { grid-template-columns: 1fr; grid-template-rows: 38vh 1fr; }
+    #stage { padding: 10px; }
+    #roster { display: none; }
+    #agent-name { font-size: 18px; }
+    #panel { border-left: none; border-top: 1px solid var(--border); }
+    .turn { max-width: 92%; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .turn.entering { animation: none; }
+    * { transition-duration: 0.01ms !important; }
+  }
+</style>
+</head>
+<body class="offline">
+<div id="app">
+
+  <section id="stage" aria-label="Assistant state">
+    <div id="orbwrap"><canvas id="orb"></canvas></div>
+    <div id="identity">
+      <div id="identity-row">
+        <img id="agent-icon" src="icons/orchestrator.svg" alt="">
+        <div>
+          <h2 id="agent-name">Sorena</h2>
+          <div id="agent-role">orchestrator</div>
+        </div>
+      </div>
+      <div id="state-line" aria-live="polite">
+        <span id="state-dot"></span><span id="state-text">idle</span>
+      </div>
+    </div>
+    <div id="roster" aria-label="Specialists"></div>
+  </section>
+
+  <section id="panel" aria-label="Conversation">
+    <div id="panel-head">
+      <h1>Conversation</h1>
+      <div id="conn"><span class="dot"></span><span id="conn-text">connecting…</span></div>
+    </div>
+    <div id="transcript">
+      <div id="empty">
+        Say <strong>"hey Jarvis"</strong> — or type below.<br>
+        Sorena routes each message to the right specialist.
+      </div>
+    </div>
+    <div id="offline-hint">Backend offline. Start it with <code>uv run python -m sorena.face</code></div>
+    <form id="composer">
+      <textarea id="input" rows="1" placeholder="Message Sorena…" aria-label="Message Sorena"></textarea>
+      <button id="send" type="submit" disabled>Send</button>
+    </form>
+  </section>
+
+</div>
+
+<script>
+/* ==========================================================================
+   Orb engine — same dotted particle sphere as web/orb.html, adapted to size
+   itself to #orbwrap instead of the viewport. Canvas 2D, no dependencies.
+   ========================================================================== */
+const SorenaOrb = (() => {
+  const canvas = document.getElementById('orb');
+  const ctx = canvas.getContext('2d');
+  const wrap = document.getElementById('orbwrap');
+
+  let W, H, CX, CY, R, F;
+  function resize() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const size = Math.max(180, Math.min(wrap.clientWidth, wrap.clientHeight));
+    W = size; H = size;
+    canvas.width = W * dpr; canvas.height = H * dpr;
+    canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    CX = W / 2; CY = H / 2;
+    R = size * 0.26; F = size * 1.2;
+  }
+  new ResizeObserver(resize).observe(wrap);
+  window.addEventListener('resize', resize);
+  resize();
+
+  const CORE_N = 620;
+  const core = [];
+  for (let i = 0; i < CORE_N; i++) {
+    const y = 1 - (i / (CORE_N - 1)) * 2;
+    const rad = Math.sqrt(1 - y * y);
+    const th = i * 2.39996323;
+    core.push({ x: Math.cos(th) * rad, y, z: Math.sin(th) * rad,
+                ph: Math.random() * Math.PI * 2, mix: Math.random() });
+  }
+  const RING_DEFS = [
+    [1.36, 0.45, 0.0, 110, 0.25],
+    [1.62, -0.6, 0.9, 130, -0.18],
+    [1.87, 0.2, 2.1, 150, 0.12],
+  ];
+  const rings = RING_DEFS.map(([rf, tx, tz, n, spd]) => ({
+    rf, tx, tz, spd,
+    dots: Array.from({ length: n }, (_, i) => ({
+      a: (i / n) * Math.PI * 2, mix: Math.random(), ph: Math.random() * Math.PI * 2
+    }))
+  }));
+
+  const PALETTES = {
+    idle:      [[91, 79, 216], [56, 182, 216]],
+    listening: [[47, 212, 200], [130, 235, 255]],
+    speaking:  [[242, 179, 61], [236, 116, 45]],
+  };
+
+  let state = 'idle';
+  let agentColor = null;
+  let cA = [...PALETTES.idle[0]], cB = [...PALETTES.idle[1]];
+  let energy = 0.25, level = 0.5, externalLevel = false, t = 0;
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const ENERGY_TARGET = { idle: 0.25, listening: 0.7, speaking: 1.0 };
+
+  const L = (a, b, k) => a + (b - a) * k;
+  const rotY = (p, a) => { const c = Math.cos(a), s = Math.sin(a);
+    return { x: p.x * c + p.z * s, y: p.y, z: -p.x * s + p.z * c }; };
+  const rotX = (p, a) => { const c = Math.cos(a), s = Math.sin(a);
+    return { x: p.x, y: p.y * c - p.z * s, z: p.y * s + p.z * c }; };
+  const rotZ = (p, a) => { const c = Math.cos(a), s = Math.sin(a);
+    return { x: p.x * c - p.y * s, y: p.x * s + p.y * c, z: p.z }; };
+
+  function simulatedLevel() {
+    if (state === 'listening') return 0.5 + 0.35 * Math.sin(t * 5) + 0.2 * Math.sin(t * 12.3);
+    if (state === 'speaking') return 0.55 + 0.45 * Math.abs(Math.sin(t * 6.2)) * Math.sin(t * 1.7 + 1);
+    return 0.5 + 0.5 * Math.sin(t * 1.1);
+  }
+
+  const buf = [];
+  function draw() {
+    t += reduced ? 0 : 0.016;
+    const pal = agentColor ? [agentColor, PALETTES[state][1]] : PALETTES[state];
+    for (let i = 0; i < 3; i++) {
+      cA[i] = L(cA[i], pal[0][i], 0.05);
+      cB[i] = L(cB[i], pal[1][i], 0.05);
+    }
+    energy = L(energy, ENERGY_TARGET[state], 0.04);
+    const lv = externalLevel ? level : simulatedLevel();
+
+    ctx.clearRect(0, 0, W, H);
+    const spin = t * (0.12 + energy * 0.35);
+    const tilt = 0.35 + 0.05 * Math.sin(t * 0.4);
+    buf.length = 0;
+
+    for (const p of core) {
+      let rr = R;
+      if (state === 'speaking') {
+        const lat = Math.asin(p.y);
+        rr = R * (1 + 0.09 * energy * Math.sin(t * 5 - lat * 4 + p.ph * 0.3));
+      } else if (state === 'listening') {
+        rr = R * (1 - 0.10 * energy * lv) + 3 * Math.sin(t * 2 + p.ph);
+      } else {
+        rr = R * (1 + 0.035 * Math.sin(t * 1.1 + p.ph));
+      }
+      let q = rotY({ x: p.x * rr, y: p.y * rr, z: p.z * rr }, spin);
+      q = rotX(q, tilt);
+      buf.push({ q, mix: p.mix, base: 1.5, ring: false });
+    }
+    for (const rg of rings) {
+      const ra = t * rg.spd * (1 + energy * 1.6);
+      const rr = R * rg.rf;
+      for (const d of rg.dots) {
+        const a = d.a + ra;
+        let q = { x: Math.cos(a) * rr, y: 0, z: Math.sin(a) * rr };
+        q = rotX(q, rg.tx + 0.06 * Math.sin(t * 0.5 + d.ph));
+        q = rotZ(q, rg.tz);
+        q = rotX(q, tilt);
+        const pulse = state === 'speaking' ? 1 + 0.25 * energy * Math.sin(t * 6 - a * 3) : 1;
+        q.x *= pulse; q.y *= pulse; q.z *= pulse;
+        buf.push({ q, mix: d.mix, base: 1.2, ring: true });
+      }
+    }
+    buf.sort((a, b) => a.q.z - b.q.z);
+    const zRange = R * 2.2;
+    for (const b of buf) {
+      const s = F / (F + b.q.z);
+      const x = CX + b.q.x * s, y = CY + b.q.y * s;
+      const depth = (b.q.z + zRange / 2) / zRange;
+      const m = b.mix;
+      const r = (cA[0] * (1 - m) + cB[0] * m) | 0;
+      const g = (cA[1] * (1 - m) + cB[1] * m) | 0;
+      const bl = (cA[2] * (1 - m) + cB[2] * m) | 0;
+      let al = 0.25 + 0.65 * (1 - depth);
+      if (b.ring) al *= 0.5 + 0.5 * energy * Math.max(lv, 0.3);
+      const sz = (b.base + (b.ring ? 0 : 0.6) + energy * lv * 0.9) * s;
+      ctx.beginPath();
+      ctx.fillStyle = `rgba(${r},${g},${bl},${Math.min(al, 0.95)})`;
+      ctx.arc(x, y, Math.max(sz, 0.5), 0, 6.2832);
+      ctx.fill();
+    }
+    requestAnimationFrame(draw);
+  }
+  draw();
+
+  return {
+    setState: s => { if (PALETTES[s]) state = s; },
+    setLevel: v => { externalLevel = true; level = Math.max(0, Math.min(1, v)); },
+    setAgentColor: hex => {
+      if (!hex) { agentColor = null; return; }
+      const n = parseInt(hex.replace('#', ''), 16);
+      agentColor = [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+    },
+  };
+})();
+
+/* ==========================================================================
+   App shell: roster, state line, transcript, composer, WebSocket bridge.
+   ========================================================================== */
+(() => {
+  // Mirrors src/sorena/agents/personas.py -- update both when adding an agent.
+  // icon filenames match web/icons/*.svg (personas.py's Persona.icon field).
+  const PERSONAS = {
+    orchestrator: { name: 'Sorena',     color: '#F2B33D', role: 'orchestrator', icon: 'orchestrator.svg' },
+    dayplanner:   { name: 'Jamshid',    color: '#4A90D9', role: 'day planner', icon: 'dayplanner.svg' },
+    scribe:       { name: 'Dabir',      color: '#3FA66A', role: 'scribe', icon: 'scribe.svg' },
+    coach:        { name: 'Bozorgmehr', color: '#7C5CE0', role: 'coach', icon: 'coach.svg' },
+    interviewer:  { name: 'Rostam',     color: '#D9534F', role: 'interviewer', icon: 'interviewer.svg' },
+    researcher:   { name: 'Simurgh',    color: '#2FD4C8', role: 'researcher', icon: 'researcher.svg' },
+    jobscout:     { name: 'Arash',      color: '#E8792B', role: 'job scout', icon: 'jobscout.svg' },
+  };
+  const STATE_TEXT = { idle: 'idle', listening: 'listening…', speaking: 'speaking' };
+  const keyByName = Object.fromEntries(Object.entries(PERSONAS).map(([k, p]) => [p.name, k]));
+
+  const $ = id => document.getElementById(id);
+  const transcript = $('transcript'), input = $('input'), send = $('send');
+  const empty = $('empty');
+  let activeAgent = { ...PERSONAS.orchestrator }; // last agent seen in a state push
+
+  // roster
+  const chips = {};
+  for (const [key, p] of Object.entries(PERSONAS)) {
+    const el = document.createElement('span');
+    el.className = 'persona';
+    el.style.setProperty('--p-color', p.color);
+    el.innerHTML = `<img src="icons/${p.icon}" alt="">${p.name}`;
+    el.title = p.role;
+    $('roster').appendChild(el);
+    chips[key] = el;
+  }
+  chips.orchestrator.classList.add('active');
+
+  function setActiveAgent(agent) {
+    if (!agent || !agent.name) return;
+    const key = keyByName[agent.name];
+    activeAgent = { name: agent.name, color: agent.color || '#F2B33D', icon: (key && PERSONAS[key].icon) || 'orchestrator.svg' };
+    for (const [k, el] of Object.entries(chips)) el.classList.toggle('active', k === key);
+    $('agent-name').textContent = agent.name;
+    $('agent-role').textContent = key ? PERSONAS[key].role : '';
+    $('agent-icon').src = `icons/${activeAgent.icon}`;
+    SorenaOrb.setAgentColor(activeAgent.color);
+  }
+
+  function setState(s) {
+    SorenaOrb.setState(s);
+    $('state-text').textContent = STATE_TEXT[s] || s;
+    $('state-line').className = s;
+  }
+
+  // ---- markdown rendering (assistant turns only -- user text stays plain) ---
+  // Not a full CommonMark parser, just the constructs an LLM reply actually
+  // produces (matches sorena.voice.pipeline.strip_markdown_for_speech's
+  // construct list, rendered here instead of stripped since this is a
+  // visual surface, not spoken audio).
+  function escapeHtml(s) {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+  function mdToHtml(raw) {
+    // Escape first -- every transform below runs on already-escaped text,
+    // so raw '<'/'>' from a reply or tool result (e.g. a job description)
+    // can never become live markup.
+    let text = escapeHtml(raw);
+
+    // Pull fenced code blocks out before inline rules would otherwise
+    // mangle their contents (e.g. a `*` in code read as italic). The
+    // §CODEBLOCK0§-style marker is deliberately not just a bare number --
+    // a reply saying "scored 86 out of 100" contains the substring "86",
+    // which a plain-digit placeholder would wrongly match on restore.
+    const blocks = [];
+    text = text.replace(/```([\s\S]*?)```/g, (_, code) => {
+      blocks.push(`<pre><code>${code.trim()}</code></pre>`);
+      return `§CODEBLOCK${blocks.length - 1}§`;
+    });
+
+    text = text.replace(/`([^`]+)`/g, '<code>$1</code>');
+    // bold before italic: a leftover single '*' from an already-consumed
+    // '**bold**' would otherwise wrongly pair with the next stray '*'.
+    text = text.replace(/\*\*([^*]+)\*\*|__([^_]+)__/g, (_, a, b) => `<strong>${a || b}</strong>`);
+    text = text.replace(/\*([^*]+)\*|_([^_]+)_/g, (_, a, b) => `<em>${a || b}</em>`);
+    text = text.replace(
+      /\[([^\]]+)\]\(([^)]+)\)/g,
+      '<a href="$2" target="_blank" rel="noopener">$1</a>'
+    );
+
+    // Line-based block structure: headers, hr, blockquotes, lists,
+    // paragraphs. Consecutive bullet/numbered lines merge into one list.
+    const lines = text.split('\n');
+    const out = [];
+    let list = null; // 'ul' | 'ol' | null
+    const closeList = () => { if (list) { out.push(`</${list}>`); list = null; } };
+
+    for (const line of lines) {
+      // A code-fence placeholder standing alone on its line must not get
+      // wrapped in <p> -- <pre> is block-level and browsers silently
+      // reparent it out of a <p>, producing an unpredictable DOM instead
+      // of the clean structure the CSS below assumes.
+      if (/^§CODEBLOCK\d+§$/.test(line.trim())) { closeList(); out.push(line.trim()); continue; }
+      const header = line.match(/^(#{1,6})[ \t]+(.*)$/);
+      if (header) {
+        closeList();
+        const n = header[1].length;
+        out.push(`<h${n}>${header[2]}</h${n}>`);
+        continue;
+      }
+      if (/^[ \t]*[-*_]{3,}[ \t]*$/.test(line)) { closeList(); out.push('<hr>'); continue; }
+      // escapeHtml() already turned a literal '>' into '&gt;' above -- the
+      // marker has to be matched in its escaped form or it never matches.
+      const quote = line.match(/^[ \t]*&gt;[ \t]?(.*)$/);
+      if (quote) { closeList(); out.push(`<blockquote>${quote[1]}</blockquote>`); continue; }
+      const bullet = line.match(/^[ \t]*[*\-+][ \t]+(.*)$/);
+      if (bullet) {
+        if (list !== 'ul') { closeList(); out.push('<ul>'); list = 'ul'; }
+        out.push(`<li>${bullet[1]}</li>`);
+        continue;
+      }
+      const numbered = line.match(/^[ \t]*\d+\.[ \t]+(.*)$/);
+      if (numbered) {
+        if (list !== 'ol') { closeList(); out.push('<ol>'); list = 'ol'; }
+        out.push(`<li>${numbered[1]}</li>`);
+        continue;
+      }
+      closeList();
+      out.push(line.trim() === '' ? '' : `<p>${line}</p>`);
+    }
+    closeList();
+
+    return out.join('\n').replace(/§CODEBLOCK(\d+)§/g, (_, i) => blocks[Number(i)]);
+  }
+
+  // transcript
+  let thinkingEl = null;
+  function nearBottom() {
+    return transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight < 80;
+  }
+  function addTurn(role, text, agent) {
+    empty.style.display = 'none';
+    if (thinkingEl && role === 'assistant') { thinkingEl.remove(); thinkingEl = null; }
+    const stick = nearBottom();
+    const who = role === 'user' ? 'You' : (agent && agent.name) || activeAgent.name;
+    const color = role === 'assistant' ? ((agent && agent.color) || activeAgent.color) : null;
+    const icon = role === 'assistant' ? ((agent && PERSONAS[keyByName[agent.name]]?.icon) || activeAgent.icon) : null;
+    const el = document.createElement('div');
+    el.className = `turn ${role} entering`;
+    if (color) el.style.setProperty('--who-color', color);
+    const whoEl = document.createElement('div'); whoEl.className = 'who';
+    if (icon) whoEl.innerHTML = `<img src="icons/${icon}" alt="">${who}`;
+    else whoEl.textContent = who;
+    const bodyEl = document.createElement('div'); bodyEl.className = 'body';
+    if (role === 'assistant') bodyEl.innerHTML = mdToHtml(text);
+    else bodyEl.textContent = text;
+    el.append(whoEl, bodyEl);
+    transcript.appendChild(el);
+    if (stick) transcript.scrollTop = transcript.scrollHeight;
+    return el;
+  }
+  function showThinking() {
+    if (thinkingEl) return;
+    thinkingEl = addTurn('assistant', 'thinking…', { name: 'Sorena', color: null });
+    thinkingEl.classList.add('thinking');
+  }
+
+  // composer
+  input.addEventListener('input', () => {
+    input.style.height = 'auto';
+    input.style.height = Math.min(input.scrollHeight, 130) + 'px';
+  });
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('composer').requestSubmit(); }
+  });
+  $('composer').addEventListener('submit', e => {
+    e.preventDefault();
+    const text = input.value.trim();
+    if (!text || !live) return;
+    ws.send(JSON.stringify({ type: 'chat', text }));
+    // face.py echoes the turn back to every client; local echo would duplicate it,
+    // so only show the pending state here.
+    showThinking();
+    input.value = ''; input.style.height = 'auto';
+    input.focus();
+  });
+
+  // websocket bridge (same endpoint as web/orb.html; reconnects forever)
+  let ws = null, live = false;
+  function setLive(on) {
+    live = on;
+    send.disabled = !on;
+    document.body.classList.toggle('offline', !on);
+    $('conn').classList.toggle('live', on);
+    $('conn-text').textContent = on ? 'connected' : 'reconnecting…';
+    if (!on) setState('idle');
+  }
+  function connect() {
+    ws = new WebSocket('ws://localhost:8765/orb');
+    ws.onopen = () => setLive(true);
+    ws.onmessage = e => {
+      const msg = JSON.parse(e.data);
+      if (msg.agent) setActiveAgent(msg.agent);
+      if (msg.state) setState(msg.state);
+      if (typeof msg.level === 'number') SorenaOrb.setLevel(msg.level);
+      if (msg.type === 'turn') addTurn(msg.role, msg.text, msg.agent);
+    };
+    ws.onclose = () => { setLive(false); setTimeout(connect, 2000); };
+    ws.onerror = () => ws.close();
+  }
+  connect();
+})();
+</script>
+</body>
+</html>

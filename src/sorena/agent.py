@@ -24,6 +24,8 @@ def run(
     user_message: str,
     memory: ConversationMemory | None = None,
     long_term: LongTermMemory | None = None,
+    system_prompt: str | None = None,
+    tool_names: list[str] | None = None,
     _eval_case: str | None = None,
     _eval_case_type: str | None = None,
 ) -> str:
@@ -31,6 +33,18 @@ def run(
     long_term = long_term or LongTermMemory()
     start = time.perf_counter()
     steps: list[dict] = []
+
+    if system_prompt and not memory.messages:
+        memory.add({"role": "system", "content": system_prompt})
+
+    # least-privilege tool scoping: a specialist agent only sees (and can
+    # call) the tools listed in tool_names -- omit it to keep today's
+    # behavior of exposing every registered tool.
+    tool_schemas = TOOL_SCHEMAS
+    allowed_tools = None
+    if tool_names is not None:
+        tool_schemas = [s for s in TOOL_SCHEMAS if s["function"]["name"] in tool_names]
+        allowed_tools = set(tool_names)
 
     def log_trace(final_answer: str | None, hops: int) -> None:
         trace.log_run(
@@ -48,7 +62,7 @@ def run(
     long_term.add_turn("user", user_message, datetime.now(UTC).isoformat())
 
     for hop in range(MAX_HOPS):
-        response = router.chat(memory.messages, tools=TOOL_SCHEMAS)
+        response = router.chat(memory.messages, tools=tool_schemas)
 
         if isinstance(response, str):
             memory.add({"role": "assistant", "content": response})
@@ -77,12 +91,15 @@ def run(
 
         for tool_call in response.tool_calls:
             name = tool_call.function.name
-            try:
-                result = call_tool(name, tool_call.function.arguments)
-            except UnknownToolError as e:
-                result = f"Error: {e}"
-            except Exception as e:
-                result = f"Error running tool '{name}': {e}"
+            if allowed_tools is not None and name not in allowed_tools:
+                result = f"Error: tool '{name}' is not available to this agent"
+            else:
+                try:
+                    result = call_tool(name, tool_call.function.arguments)
+                except UnknownToolError as e:
+                    result = f"Error: {e}"
+                except Exception as e:
+                    result = f"Error running tool '{name}': {e}"
 
             steps.append(
                 {

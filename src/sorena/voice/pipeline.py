@@ -8,6 +8,36 @@ from sorena.voice import stt, tts, vad, wakeword
 
 SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
 
+# Markdown an LLM reply routinely contains, stripped before TTS so Piper
+# speaks the words, not the literal symbols ("asterisk asterisk bold
+# asterisk asterisk"). The chat UI gets the raw reply and renders the
+# markdown itself instead -- only the spoken path needs this.
+_MD_CODE_FENCE = re.compile(r"```.*?```", re.DOTALL)
+_MD_HEADER = re.compile(r"^#{1,6}[ \t]+", re.MULTILINE)
+_MD_HR = re.compile(r"^[ \t]*[-*_]{3,}[ \t]*$", re.MULTILINE)
+_MD_BLOCKQUOTE = re.compile(r"^[ \t]*>[ \t]?", re.MULTILINE)
+_MD_BULLET = re.compile(r"^[ \t]*[*\-+][ \t]+", re.MULTILINE)
+_MD_LINK = re.compile(r"\[([^\]]+)\]\([^)]+\)")
+_MD_INLINE_CODE = re.compile(r"`([^`]+)`")
+_MD_BOLD = re.compile(r"\*\*([^*]+)\*\*|__([^_]+)__")
+_MD_ITALIC = re.compile(r"\*([^*]+)\*|_([^_]+)_")
+
+
+def strip_markdown_for_speech(text: str) -> str:
+    """Best-effort markdown-to-plain-text for TTS input. Not a full parser
+    -- just the constructs an LLM reply actually produces (bold/italic,
+    headers, bullets, links, inline/fenced code, horizontal rules)."""
+    text = _MD_CODE_FENCE.sub("(code omitted)", text)
+    text = _MD_HR.sub("", text)
+    text = _MD_HEADER.sub("", text)
+    text = _MD_BLOCKQUOTE.sub("", text)
+    text = _MD_BULLET.sub("", text)
+    text = _MD_LINK.sub(r"\1", text)
+    text = _MD_INLINE_CODE.sub(r"\1", text)
+    text = _MD_BOLD.sub(lambda m: m.group(1) or m.group(2), text)
+    text = _MD_ITALIC.sub(lambda m: m.group(1) or m.group(2), text)
+    return text
+
 
 def split_sentences(text: str) -> list[str]:
     sentences = [s.strip() for s in SENTENCE_SPLIT.split(text) if s.strip()]
@@ -55,28 +85,41 @@ def speak_naive(text: str) -> float:
     return first_audio_at - start
 
 
-def run_voice_turn() -> dict:
+def run_voice_turn(
+    system_prompt: str | None = None,
+    tool_names: list[str] | None = None,
+    persona: dict | None = None,
+) -> dict:
     """One full hands-free turn: wake word -> VAD-gated listen -> transcribe
     -> agent loop (Phase 2) -> streaming TTS response. Pushes state to the
     orb face (idle/listening/speaking) as the turn progresses -- see
-    src/sorena/face.py and ADR 0009."""
+    src/sorena/face.py and ADR 0009.
+
+    `system_prompt`/`tool_names` scope this turn to one specialist (e.g. the
+    Interviewer) exactly like agent.run() and orchestrator.run() already do
+    for text mode -- omit both for the default, unscoped assistant. `persona`
+    is that specialist's face info ({"name", "color", "icon"}, see
+    sorena.agents.personas) so the orb tints/labels itself accordingly while
+    this turn is active."""
     face.start()
     wake_latency = wakeword.listen_for_wakeword()
 
-    face.push_state("listening")
+    face.push_state("listening", agent=persona)
     audio = stt.record(5.0)
     if not vad.has_speech(audio):
-        face.push_state("idle")
+        face.push_state("idle", agent=persona)
         tts.speak("I didn't hear anything.")
         return {"wake_latency": wake_latency, "transcript": None, "reply": None}
 
-    face.push_state("idle")  # thinking -- idle's violet->cyan palette covers this
+    face.push_state("idle", agent=persona)  # thinking -- idle's violet->cyan palette covers this
     transcript = stt.transcribe(audio)
-    reply = agent.run(transcript)
+    face.push_turn("user", transcript, agent=persona)
+    reply = agent.run(transcript, system_prompt=system_prompt, tool_names=tool_names)
+    face.push_turn("assistant", reply, agent=persona)
 
-    face.push_state("speaking")
-    time_to_first_audio = speak_streaming(reply)
-    face.push_state("idle")
+    face.push_state("speaking", agent=persona)
+    time_to_first_audio = speak_streaming(strip_markdown_for_speech(reply))
+    face.push_state("idle", agent=persona)
 
     return {
         "wake_latency": wake_latency,

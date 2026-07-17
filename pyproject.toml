@@ -8,11 +8,15 @@ authors = [
 requires-python = ">=3.12"
 dependencies = [
     "faster-whisper>=1.2.1",
+    "google-api-python-client>=2.198.0",
+    "google-auth-httplib2>=0.4.0",
+    "google-auth-oauthlib>=1.4.0",
     "litellm<1.92",
     "mcp>=1.28.1",
     "openwakeword>=0.6.0",
     "piper-tts>=1.4.2",
     "python-dotenv>=1.2.2",
+    "pyyaml>=6.0.3",
     "requests>=2.34.2",
     "scipy>=1.18.0",
     "sentence-transformers>=5.6.0",
@@ -43,6 +47,7 @@ dev = [
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+extend-exclude = ["training/"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]

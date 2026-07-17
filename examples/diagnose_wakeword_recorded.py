@@ -1,16 +1,13 @@
 import wave
 
 import numpy as np
-from openwakeword.model import Model
-from openwakeword.utils import download_models
 
 from sorena.voice.stt import SAMPLE_RATE, record
-from sorena.voice.wakeword import CHUNK_SAMPLES, WAKEWORD_NAME
+from sorena.voice.wakeword import CHUNK_SAMPLES, WAKEWORD_NAME, _get_model
 
-download_models([WAKEWORD_NAME])
-model = Model(wakeword_models=[WAKEWORD_NAME], inference_framework="onnx")
+model = _get_model()
 
-print("Recording 3 seconds -- say 'hey jarvis' clearly...")
+print("Recording 3 seconds -- say 'hey sorena' clearly...")
 audio = record(3.0)
 
 pcm = (audio * 32767).astype(np.int16)

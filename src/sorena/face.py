@@ -19,10 +19,32 @@ _clients: set = set()
 _started = threading.Event()
 
 
+def _handle_chat(text: str) -> None:
+    """Run one text turn through the orchestrator and push the transcript
+    back to the face. Runs on a worker thread -- orchestrator.run() is
+    synchronous and slow (LLM calls)."""
+    push_turn("user", text)
+    push_state("idle")  # thinking
+    from sorena.agents import orchestrator  # lazy: keeps face importable without agent deps
+
+    try:
+        reply = orchestrator.run(text)
+    except Exception as exc:  # surface backend failures in the UI, never drop the turn
+        reply = f"Something went wrong handling that: {exc}"
+    push_turn("assistant", reply)
+    push_state("idle")
+
+
 async def _handler(ws) -> None:
     _clients.add(ws)
     try:
-        await ws.wait_closed()
+        async for raw in ws:
+            try:
+                msg = json.loads(raw)
+            except (json.JSONDecodeError, TypeError):
+                continue
+            if isinstance(msg, dict) and msg.get("type") == "chat" and msg.get("text"):
+                threading.Thread(target=_handle_chat, args=(msg["text"],), daemon=True).start()
     finally:
         _clients.discard(ws)
 
@@ -55,13 +77,43 @@ def start() -> None:
     _started.wait(timeout=5)
 
 
-def push_state(state: str, level: float | None = None) -> None:
+def push_state(state: str, level: float | None = None, agent: dict | None = None) -> None:
     """Push a state update to any connected orb face. No-op if the server
     hasn't been started or no browser tab is connected -- the voice pipeline
-    never blocks on the face being open."""
+    never blocks on the face being open.
+
+    `agent` is the active persona's display info, e.g. {"name": "Sorena",
+    "color": "#F2B33D", "icon": "orchestrator.svg"} -- the orb tints itself
+    toward that color and shows the icon (looked up under web/icons/). See
+    sorena.agents.personas."""
     if _loop is None:
         return
     payload = {"state": state}
     if level is not None:
         payload["level"] = level
+    if agent is not None:
+        payload["agent"] = agent
     asyncio.run_coroutine_threadsafe(_broadcast(json.dumps(payload)), _loop)
+
+
+def push_turn(role: str, text: str, agent: dict | None = None) -> None:
+    """Push one transcript turn ("user" or "assistant") to the face so the
+    conversation panel stays in sync with voice and text turns alike."""
+    if _loop is None:
+        return
+    payload: dict = {"type": "turn", "role": role, "text": text}
+    if agent is not None:
+        payload["agent"] = agent
+    asyncio.run_coroutine_threadsafe(_broadcast(json.dumps(payload)), _loop)
+
+
+if __name__ == "__main__":
+    # Text-only mode: serve the face bridge without the voice pipeline.
+    #   uv run python -m sorena.face   then open web/index.html
+    # Run via the canonical `sorena.face` module, not this `__main__` copy --
+    # otherwise the rest of the codebase pushes to a second, serverless instance.
+    from sorena import face as _face
+
+    _face.start()
+    print(f"Sorena face bridge on ws://localhost:{_face.PORT} -- open web/index.html")
+    threading.Event().wait()  # run until Ctrl+C

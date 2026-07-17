@@ -38,6 +38,17 @@ flowchart LR
 
 Full specs, deliverables, and definition-of-done per phase: [`docs/specs/`](docs/specs/README.md).
 
+## Face UI
+
+`web/index.html` is the full assistant face: the orb (state + active persona), a live transcript of voice *and* text turns, and a composer that sends text turns to the orchestrator over the same WebSocket bridge (`src/sorena/face.py`, port 8765). Text-only mode, no voice pipeline needed:
+
+```bash
+uv run python -m sorena.face     # start the bridge
+# then open web/index.html in a browser (or serve web/ with any static server)
+```
+
+`web/orb.html` remains the minimal orb-only face used by the voice pipeline docs.
+
 ## Quickstart
 
 ```bash
