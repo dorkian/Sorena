@@ -26,6 +26,7 @@ def run(
     long_term: LongTermMemory | None = None,
     system_prompt: str | None = None,
     tool_names: list[str] | None = None,
+    model_override: str | None = None,
     _eval_case: str | None = None,
     _eval_case_type: str | None = None,
 ) -> str:
@@ -62,7 +63,7 @@ def run(
     long_term.add_turn("user", user_message, datetime.now(UTC).isoformat())
 
     for hop in range(MAX_HOPS):
-        response = router.chat(memory.messages, tools=tool_schemas)
+        response = router.chat(memory.messages, tools=tool_schemas, model_override=model_override)
 
         if isinstance(response, str):
             memory.add({"role": "assistant", "content": response})

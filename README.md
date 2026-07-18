@@ -59,6 +59,76 @@ uv run ruff format .        # format
 pre-commit install          # enable git hooks (once)
 ```
 
+## Configuration
+
+Copy `.env.example` to `.env` and fill in your API keys. The LLM provider
+fallback chain is also configurable there -- `SORENA_PROVIDER_CHAIN` (which
+models to try, in order) and `SORENA_RATE_LIMITS_RPM` (local per-model rate
+caps) both default to Groq + Gemini in `src/sorena/config.py`, but can be
+overridden per-deployment without touching code, e.g. to add another
+provider or drop one that's hit its quota:
+
+```bash
+SORENA_PROVIDER_CHAIN=groq/llama-3.3-70b-versatile,anthropic/claude-3-5-haiku-20241022,gemini/gemini-3.1-flash-lite
+SORENA_RATE_LIMITS_RPM=groq/llama-3.3-70b-versatile:30,anthropic/claude-3-5-haiku-20241022:20,gemini/gemini-3.1-flash-lite:15
+```
+
+Each entry is a [litellm](https://docs.litellm.ai/docs/providers) model
+string (`provider/model-name`) with a matching API key env var for that
+provider (e.g. `ANTHROPIC_API_KEY`) set alongside it.
+
+### NVIDIA NIM (build.nvidia.com)
+
+NVIDIA's free-tier API catalog gives access to NVIDIA's own hosted models
+plus partner models (GLM, MiniMax, Qwen, etc) through one OpenAI-compatible
+endpoint. Get a key at [build.nvidia.com](https://build.nvidia.com) (Login
+-> open any model page -> "Generate API Key"), set `NVIDIA_NIM_API_KEY` in
+`.env`, then add a `nvidia_nim/<org>/<model>` entry to the chain -- litellm's
+`nvidia_nim` provider handles the rest:
+
+```bash
+NVIDIA_NIM_API_KEY=nvapi-...
+SORENA_PROVIDER_CHAIN=groq/llama-3.3-70b-versatile,nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b,gemini/gemini-3.1-flash-lite
+SORENA_RATE_LIMITS_RPM=groq/llama-3.3-70b-versatile:30,nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b:40,gemini/gemini-3.1-flash-lite:15
+```
+
+The exact model string for any model on the site is on its model page under
+"Prototype" (e.g. `nvidia/nemotron-3-ultra-550b-a55b`, `z-ai/glm-5.2`) --
+copy it as-is and prefix with `nvidia_nim/`.
+
+### OpenRouter (GPT and others)
+
+OpenRouter gives access to GPT models (and hundreds of others) through one
+OpenAI-compatible endpoint. Get a key at
+[openrouter.ai](https://openrouter.ai) (Sign in -> Keys -> Create Key), set
+`OPENROUTER_API_KEY` in `.env`, then add an `openrouter/<org>/<model>` entry
+to the chain -- litellm's `openrouter` provider handles the rest:
+
+```bash
+OPENROUTER_API_KEY=sk-or-...
+SORENA_PROVIDER_CHAIN=groq/llama-3.3-70b-versatile,openrouter/openai/gpt-oss-120b,gemini/gemini-3.1-flash-lite
+SORENA_RATE_LIMITS_RPM=groq/llama-3.3-70b-versatile:30,openrouter/openai/gpt-oss-120b:30,gemini/gemini-3.1-flash-lite:15
+```
+
+`gpt-oss-120b` is OpenAI's open-weight model and is very cheap (~$0.03/$0.18
+per M tokens) -- a good default alongside the free-tier providers above. For
+the frontier GPT line, use e.g. `openrouter/openai/gpt-5.6-sol` (flagship,
+$5/$30 per M tokens) or `openrouter/openai/gpt-5.6-luna` (cheaper, faster).
+The exact model string for any model is on its
+[model page](https://openrouter.ai/models) -- copy it as-is and prefix with
+`openrouter/`.
+
+### Picking a model in the chat UI
+
+`web/index.html`'s composer has a model dropdown, populated from whatever
+`SORENA_PROVIDER_CHAIN` the running `sorena.face` process resolved (sent to
+the browser as a `config` message on connect -- see `face.py`'s
+`_handler`). "Auto (fallback chain)" is the default and behaves exactly like
+before (tries each model in order until one succeeds); picking a specific
+model forces that one model for the turn, with no fallback -- if it fails,
+the error is surfaced rather than silently trying something else you didn't
+choose.
+
 ## Demo: forced fallback
 
 `sorena.router.chat()` is the single entry point every other phase calls through. It tries providers in order (Groq → Gemini), retrying each with exponential backoff, and skips a provider locally once its free-tier RPM is hit — before a real 429 happens. Every call logs one JSONL record to `traces/telemetry.jsonl`.
@@ -135,11 +205,13 @@ Both a dead server at startup and adding a new server to config are handled with
 
 Local, CPU-only, no cloud dependency: wake word (`openWakeWord`) → VAD-gated listen → STT (`faster-whisper`) → agent loop (Phase 2) → streaming TTS (`Piper`). All audio I/O is pinned to the WASAPI backend and resampled in software to each model's expected rate — see [ADR 0005](docs/adr/0005-wasapi-audio-backend-native-rate-capture.md) for why (the default backend caused audible clicking that silently corrupted transcription accuracy). Wake word detection required two more real fixes: `openWakeWord`'s `predict()` needs individual 80ms frames, not one large call, and a continuously-open audio stream badly underperformed short, independent recordings on this hardware — see [ADR 0006](docs/adr/0006-wakeword-per-frame-prediction-polled-capture.md).
 
+The wake word is a custom-trained `hey_sorena` model (`training/hey_sorena_training.ipynb`), used automatically when present (falls back to openWakeWord's pretrained `hey_jarvis` otherwise) — see [ADR 0012](docs/adr/0012-custom-hey-sorena-wakeword-threshold.md) for the real-voice threshold validation and its known recall tradeoff (expect to occasionally repeat the phrase).
+
 ```bash
-uv run python examples/demo_voice_pipeline.py   # say "hey jarvis", then ask a question
+uv run python examples/demo_voice_pipeline.py   # say "hey sorena", then ask a question
 ```
 
-Real captured run — full hands-free loop, no manual intervention after saying the wake word:
+Real captured run — full hands-free loop, no manual intervention after saying the wake word (captured against the original pretrained `hey_jarvis` model, before the `hey_sorena` swap in ADR 0012 — the pipeline mechanics shown are unchanged):
 
 ```
 === turn summary ===

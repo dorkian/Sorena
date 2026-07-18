@@ -1,3 +1,5 @@
+import threading
+
 import pytest
 
 from sorena.voice import pipeline
@@ -130,6 +132,39 @@ def test_speak_streaming_synthesizes_and_plays_each_sentence(monkeypatch):
 
     assert synthesize_calls == ["One.", "Two.", "Three."]
     assert play_calls == [("One.", 16000), ("Two.", 16000), ("Three.", 16000)]
+
+
+def test_speak_streaming_raises_instead_of_hanging_on_synthesis_failure(monkeypatch):
+    # Regression test: synthesize_worker runs on a background thread. Before
+    # the fix, an exception there (e.g. a real onnxruntime OOM seen in
+    # production) killed the thread without ever queuing the None sentinel,
+    # leaving the consumer loop blocked on audio_queue.get() forever -- a
+    # permanent hang, not a crash. Run speak_streaming on its own thread with
+    # a bounded join so a regression back to that hang fails this test
+    # quickly instead of freezing the whole suite.
+    def fake_synthesize(text):
+        if text == "Two.":
+            raise RuntimeError("simulated onnxruntime allocation failure")
+        return (text, 16000)
+
+    monkeypatch.setattr(pipeline.tts, "synthesize", fake_synthesize)
+    monkeypatch.setattr(pipeline.tts, "play", lambda audio, sr: None)
+
+    outcome = {}
+
+    def run():
+        try:
+            outcome["result"] = pipeline.speak_streaming("One. Two. Three.")
+        except Exception as exc:
+            outcome["error"] = exc
+
+    caller = threading.Thread(target=run, daemon=True)
+    caller.start()
+    caller.join(timeout=5)
+
+    assert not caller.is_alive(), "speak_streaming hung instead of raising"
+    assert isinstance(outcome.get("error"), RuntimeError)
+    assert "simulated onnxruntime allocation failure" in str(outcome["error"])
 
 
 def test_speak_naive_synthesizes_full_text_once(monkeypatch):

@@ -34,7 +34,7 @@ def _classify(user_message: str) -> str:
     return next(iter(SPECIALISTS))  # unrecognized response -- fall back to the first specialist
 
 
-def run(user_message: str) -> str:
+def run(user_message: str, model_override: str | None = None) -> str:
     role = _classify(user_message)
     specialist = SPECIALISTS[role]
     persona = PERSONAS[role]
@@ -47,6 +47,7 @@ def run(user_message: str) -> str:
         user_message,
         system_prompt=specialist.SYSTEM_PROMPT,
         tool_names=specialist.TOOL_NAMES,
+        model_override=model_override,
     )
 
     bus.log_event(agent=role, event_type="handled_message", payload=reply[:200])

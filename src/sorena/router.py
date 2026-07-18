@@ -16,8 +16,13 @@ def chat(
     messages: list[dict],
     tools: list[dict] | None = None,
     tool_choice: str | None = None,
+    model_override: str | None = None,
 ) -> str:
-    for model in PROVIDER_CHAIN:
+    # model_override (e.g. a user's explicit pick in the chat UI) replaces the
+    # whole fallback chain with that one model -- a deliberate choice deserves
+    # a clear failure if it doesn't work, not a silent swap to something else.
+    chain = [model_override] if model_override else PROVIDER_CHAIN
+    for model in chain:
         if not _rate_limiter.allow(model):
             print(f"[router] {model} locally rate-limited, skipping")
             continue

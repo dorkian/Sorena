@@ -38,7 +38,11 @@ class FakeToolCallResponse:
 
 
 def test_max_hops_guard_stops_infinite_loop(monkeypatch):
-    monkeypatch.setattr(agent.router, "chat", lambda messages, tools=None: FakeToolCallResponse())
+    monkeypatch.setattr(
+        agent.router,
+        "chat",
+        lambda messages, tools=None, model_override=None: FakeToolCallResponse(),
+    )
 
     with pytest.raises(agent.MaxHopsExceededError):
         agent.run("loop forever")
@@ -46,12 +50,24 @@ def test_max_hops_guard_stops_infinite_loop(monkeypatch):
 
 def test_run_returns_direct_string_answer(monkeypatch):
     monkeypatch.setattr(
-        agent.router, "chat", lambda messages, tools=None: "direct answer, no tool needed"
+        agent.router,
+        "chat",
+        lambda messages, tools=None, model_override=None: "direct answer, no tool needed",
     )
 
     result = agent.run("hello")
 
     assert result == "direct answer, no tool needed"
+
+
+def test_model_override_is_passed_through_to_router(monkeypatch):
+    def fake_chat(messages, tools=None, model_override=None):
+        assert model_override == "openrouter/openai/gpt-oss-120b"
+        return "ok"
+
+    monkeypatch.setattr(agent.router, "chat", fake_chat)
+
+    agent.run("hello", model_override="openrouter/openai/gpt-oss-120b")
 
 
 def test_unknown_tool_call_is_fed_back_as_error_not_raised(monkeypatch):
@@ -69,7 +85,7 @@ def test_unknown_tool_call_is_fed_back_as_error_not_raised(monkeypatch):
 
     calls = {"count": 0}
 
-    def fake_chat(messages, tools=None):
+    def fake_chat(messages, tools=None, model_override=None):
         calls["count"] += 1
         if calls["count"] == 1:
             return BadToolCallResponse()
@@ -99,7 +115,7 @@ def test_malformed_tool_arguments_are_fed_back_as_error_not_raised(monkeypatch):
 
     calls = {"count": 0}
 
-    def fake_chat(messages, tools=None):
+    def fake_chat(messages, tools=None, model_override=None):
         calls["count"] += 1
         if calls["count"] == 1:
             return MalformedArgsResponse()
@@ -115,7 +131,7 @@ def test_malformed_tool_arguments_are_fed_back_as_error_not_raised(monkeypatch):
 
 
 def test_system_prompt_is_seeded_as_first_message(monkeypatch):
-    def fake_chat(messages, tools=None):
+    def fake_chat(messages, tools=None, model_override=None):
         assert messages[0] == {"role": "system", "content": "you are a test persona"}
         return "ok"
 
@@ -125,7 +141,7 @@ def test_system_prompt_is_seeded_as_first_message(monkeypatch):
 
 
 def test_tool_names_restricts_schemas_sent_to_the_model(monkeypatch):
-    def fake_chat(messages, tools=None):
+    def fake_chat(messages, tools=None, model_override=None):
         names = {t["function"]["name"] for t in tools}
         assert names == {"get_current_time"}
         return "ok"
@@ -138,7 +154,7 @@ def test_tool_names_restricts_schemas_sent_to_the_model(monkeypatch):
 def test_tool_call_outside_allowed_set_is_fed_back_as_error_not_executed(monkeypatch):
     calls = {"count": 0}
 
-    def fake_chat(messages, tools=None):
+    def fake_chat(messages, tools=None, model_override=None):
         calls["count"] += 1
         if calls["count"] == 1:
             return FakeToolCallResponse()  # calls get_current_time

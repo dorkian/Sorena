@@ -6,10 +6,10 @@ from openwakeword.model import Model
 from openwakeword.utils import download_models
 from scipy.signal import resample_poly
 
-# training/hey_sorena_training.ipynb can produce a custom model at this path;
-# until it exists, _get_model() falls back to openWakeWord's pretrained
-# hey_jarvis model -- the one this project actually shipped and tuned
-# (ADR 0006) -- so voice mode works out of the box either way.
+# training/hey_sorena_training.ipynb produces a custom model at this path; a
+# trained one now ships in the repo (models/wakeword/hey_sorena.onnx, see
+# .gitignore's exception for it) so _get_model() picks it over openWakeWord's
+# pretrained hey_jarvis model by default -- see ADR 0012.
 CUSTOM_MODEL_PATH = (
     Path(__file__).parent.parent.parent.parent / "models" / "wakeword" / "hey_sorena.onnx"
 )
@@ -20,9 +20,18 @@ WAKEWORD_NAME = (
 SAMPLE_RATE = 16000
 CHUNK_SAMPLES = 1280  # openWakeWord's native 80ms frame size at 16kHz
 WINDOW_SECONDS = 1.5  # length of each polled recording -- see listen_for_wakeword
-THRESHOLD = 0.3  # tuned against real measured live-voice scores for the pretrained hey_jarvis
-# model (ADR 0006). Retune if/when a trained hey_sorena.onnx gets dropped in --
-# see diagnose_wakeword_recorded.py.
+# 0.2, lowered from hey_jarvis's original 0.3 (ADR 0006) after hey_sorena's
+# real live-voice measurements (ADR 0012) showed only 2 of 9 genuine "hey
+# sorena" attempts crossed 0.3, including a near-miss at 0.2687 -- consistent
+# with the model's own reported 0.468 training recall, not a threshold-tuning
+# problem. 0.2 catches that near-miss while staying ~4x above the one
+# measured negative sample (0.0490). Window size (1.5s vs a 3s comparison)
+# was ruled out as the cause -- the short window scored the single highest
+# real result (0.8384) across all trials. Weak recall is still the dominant
+# failure mode even at 0.2 (most low scores were near-zero, not near-miss) --
+# see diagnose_wakeword_recorded.py to re-measure, and ADR 0012 for why the
+# real fix is retraining with more data/steps, not a lower threshold still.
+THRESHOLD = 0.2
 
 _model: Model | None = None
 
@@ -81,10 +90,10 @@ def listen_for_wakeword() -> float:
     capture -- buffer timing, or driver-level behavior on this Realtek SST
     hardware -- degrades real speech in a way a short, clean, one-shot
     recording doesn't. That 0.38/0.008 pair was measured against the
-    pretrained hey_jarvis model (ADR 0006). If a custom-trained hey_sorena
-    model is dropped in later (see _get_model()), THRESHOLD must be
-    re-measured the same way against its own real score distribution --
-    see diagnose_wakeword_recorded.py."""
+    pretrained hey_jarvis model (ADR 0006); hey_sorena's own THRESHOLD was
+    re-measured the same way once it replaced hey_jarvis as the default (see
+    ADR 0012) -- re-measure again with diagnose_wakeword_recorded.py /
+    diagnose_wakeword_short_window.py after any future retrain."""
     model = _get_model()
     device = _wasapi_input_device()
     device_rate = int(sd.query_devices(device)["default_samplerate"])

@@ -17,6 +17,7 @@ wheels/
 # Secrets/env
 .env
 .env.*
+!.env.example
 
 # Local model artifacts (whisper.cpp / Piper / Ollama / embeddings — later phases)
 *.gguf

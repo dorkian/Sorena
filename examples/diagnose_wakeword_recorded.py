@@ -2,9 +2,14 @@ import wave
 
 import numpy as np
 
+from sorena.voice import wakeword
 from sorena.voice.stt import SAMPLE_RATE, record
-from sorena.voice.wakeword import CHUNK_SAMPLES, WAKEWORD_NAME, _get_model
+from sorena.voice.wakeword import CHUNK_SAMPLES, _get_model
 
+# must read wakeword.WAKEWORD_NAME as a live module attribute, not import it
+# by value -- _get_model() reassigns it as a side effect (default "hey_jarvis"
+# -> "hey_sorena" once a custom model exists), and a `from ... import
+# WAKEWORD_NAME` above would have captured the stale pre-call value instead.
 model = _get_model()
 
 print("Recording 3 seconds -- say 'hey sorena' clearly...")
@@ -22,6 +27,6 @@ best = 0.0
 for start in range(0, len(pcm) - CHUNK_SAMPLES + 1, CHUNK_SAMPLES):
     frame = pcm[start : start + CHUNK_SAMPLES]
     scores = model.predict(frame)
-    best = max(best, scores[WAKEWORD_NAME])
+    best = max(best, scores[wakeword.WAKEWORD_NAME])
 
 print(f"best wake word score on your recorded voice: {best:.4f}")

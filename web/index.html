@@ -48,6 +48,7 @@
     align-items: center;
     justify-content: center;
     min-width: 0;
+    min-height: 0;
     padding: 24px;
     gap: 4px;
   }
@@ -125,6 +126,7 @@
   }
   #panel-head {
     display: flex; align-items: center; justify-content: space-between;
+    flex-shrink: 0;
     padding: 14px 18px;
     border-bottom: 1px solid var(--border);
   }
@@ -217,10 +219,57 @@
 
   /* ---- composer ----------------------------------------------------- */
   #composer {
-    display: flex; gap: 10px; align-items: flex-end;
+    flex-shrink: 0;
     padding: 14px 18px 18px;
     border-top: 1px solid var(--border);
   }
+  #composer-row {
+    display: flex; gap: 8px; align-items: flex-end;
+  }
+  /* model picker -- an inline toolbar control, same visual family as #send
+     (border, radius, focus/hover states), not a separate floating label
+     row: it's a peer of the input and the send button, not an afterthought
+     above them. Neutral ink-soft, never persona/accent-colored -- accent
+     and persona colors mean "this agent is active" elsewhere in this UI
+     (see PRODUCT.md), and this control isn't that. */
+  #model-picker {
+    display: inline-flex; align-items: center; gap: 5px;
+    flex-shrink: 0;
+    height: 38px;
+    padding: 0 9px 0 8px;
+    background: var(--panel-2);
+    color: var(--ink-soft);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    transition: border-color 150ms ease-out, color 150ms ease-out;
+  }
+  #model-picker:hover {
+    border-color: color-mix(in oklch, var(--ink) 25%, var(--border));
+    color: var(--ink);
+  }
+  #model-picker:focus-within {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent);
+  }
+  #model-picker svg { flex-shrink: 0; }
+  #model-picker .chip-icon { width: 13px; height: 13px; }
+  #model-picker .chevron { width: 9px; height: 9px; opacity: 0.7; }
+  #model-select {
+    appearance: none;
+    background: transparent;
+    color: inherit;
+    border: none;
+    outline: none;
+    font: inherit;
+    font-size: 13px;
+    max-width: 15ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    padding: 0;
+    cursor: pointer;
+  }
+  #model-select option { color: var(--ink); background: var(--panel-2); }
   #input {
     flex: 1;
     resize: none;
@@ -262,12 +311,24 @@
 
   /* ---- responsive ---------------------------------------------------- */
   @media (max-width: 860px) {
-    #app { grid-template-columns: 1fr; grid-template-rows: 38vh 1fr; }
-    #stage { padding: 10px; }
-    #roster { display: none; }
+    /* stage sizes to its actual content (shrunk orb + identity + wrapped
+       roster) instead of a fixed vh budget, so the roster stays visible
+       instead of being hidden outright -- #stage's min-height:0 plus
+       #orbwrap's own min-height:0 let the orb give way first. */
+    #app { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+    /* capped, not just auto: on a short+narrow window "auto" would let stage
+       claim however much its content wants, starving #panel below the
+       composer's own minimum (panel-head + composer, ~124px). The cap
+       guarantees #panel always keeps at least ~58% of viewport height. */
+    #stage { padding: 10px; max-height: 42vh; }
+    #orbwrap { flex: 0 1 220px; }
     #agent-name { font-size: 18px; }
     #panel { border-left: none; border-top: 1px solid var(--border); }
     .turn { max-width: 92%; }
+    /* narrower select frees width for the message input, the primary
+       action -- the model name is still readable via the option's title
+       tooltip and the dropdown list itself isn't truncated */
+    #model-select { max-width: 7ch; }
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -303,14 +364,29 @@
     </div>
     <div id="transcript">
       <div id="empty">
-        Say <strong>"hey Jarvis"</strong> — or type below.<br>
+        Say <strong>"hey Sorena"</strong> — or type below.<br>
         Sorena routes each message to the right specialist.
       </div>
     </div>
     <div id="offline-hint">Backend offline. Start it with <code>uv run python -m sorena.face</code></div>
     <form id="composer">
-      <textarea id="input" rows="1" placeholder="Message Sorena…" aria-label="Message Sorena"></textarea>
-      <button id="send" type="submit" disabled>Send</button>
+      <div id="composer-row">
+        <div id="model-picker" title="Model used for the next reply">
+          <svg class="chip-icon" viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M8 1.3l6.2 3.2v6.9L8 14.7l-6.2-3.3V4.5L8 1.3z"
+                  fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
+          </svg>
+          <select id="model-select" aria-label="Model used for the next reply">
+            <option value="">Auto</option>
+          </select>
+          <svg class="chevron" viewBox="0 0 10 6" aria-hidden="true">
+            <path d="M1 1l4 4 4-4" fill="none" stroke="currentColor"
+                  stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <textarea id="input" rows="1" placeholder="Message Sorena…" aria-label="Message Sorena"></textarea>
+        <button id="send" type="submit" disabled>Send</button>
+      </div>
     </form>
   </section>
 
@@ -484,6 +560,15 @@ const SorenaOrb = (() => {
   const STATE_TEXT = { idle: 'idle', listening: 'listening…', speaking: 'speaking' };
   const keyByName = Object.fromEntries(Object.entries(PERSONAS).map(([k, p]) => [p.name, k]));
 
+  // litellm model strings are "provider/model" or "provider/org/model"
+  // (e.g. "nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b") -- too long for
+  // the compact model picker. Provider prefix + final segment is enough to
+  // tell entries apart without hardcoding today's specific model names.
+  function shortModelLabel(model) {
+    const parts = model.split('/');
+    return parts.length > 1 ? `${parts[0]} · ${parts[parts.length - 1]}` : model;
+  }
+
   const $ = id => document.getElementById(id);
   const transcript = $('transcript'), input = $('input'), send = $('send');
   const empty = $('empty');
@@ -639,11 +724,14 @@ const SorenaOrb = (() => {
   input.addEventListener('keydown', e => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('composer').requestSubmit(); }
   });
+  const modelSelect = $('model-select');
   $('composer').addEventListener('submit', e => {
     e.preventDefault();
     const text = input.value.trim();
     if (!text || !live) return;
-    ws.send(JSON.stringify({ type: 'chat', text }));
+    const payload = { type: 'chat', text };
+    if (modelSelect.value) payload.model = modelSelect.value;
+    ws.send(JSON.stringify(payload));
     // face.py echoes the turn back to every client; local echo would duplicate it,
     // so only show the pending state here.
     showThinking();
@@ -670,6 +758,21 @@ const SorenaOrb = (() => {
       if (msg.state) setState(msg.state);
       if (typeof msg.level === 'number') SorenaOrb.setLevel(msg.level);
       if (msg.type === 'turn') addTurn(msg.role, msg.text, msg.agent);
+      if (msg.type === 'config' && Array.isArray(msg.models)) {
+        // repopulate on every (re)connect -- the server's chain is the
+        // source of truth, so a stale local list never outlives it
+        modelSelect.innerHTML = '<option value="">Auto</option>';
+        for (const model of msg.models) {
+          const opt = document.createElement('option');
+          opt.value = model;
+          // full litellm strings ("nvidia_nim/nvidia/nemotron-3-ultra-...")
+          // are too long for a compact toolbar control -- show provider +
+          // model name, keep the full string as the submitted value
+          opt.textContent = shortModelLabel(model);
+          opt.title = model;
+          modelSelect.appendChild(opt);
+        }
+      }
     };
     ws.onclose = () => { setLive(false); setTimeout(connect, 2000); };
     ws.onerror = () => ws.close();

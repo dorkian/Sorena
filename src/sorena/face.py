@@ -8,35 +8,60 @@ ADR 0009 for why a bare `websockets` server instead of a web framework.
 
 import asyncio
 import json
+import logging
 import threading
 
 import websockets
 
 PORT = 8765
 
+# Any TCP connection that touches this port without completing a real
+# WebSocket handshake -- a browser's speculative/aborted connection on
+# reload, a port probe, antivirus poking it -- makes `websockets` log a full
+# "opening handshake failed" traceback at ERROR level by default. Confirmed
+# by direct reproduction (raw socket connect-then-close) that this is
+# harmless: the server keeps running and serves real clients immediately
+# after. Silencing it here so a routine, expected event doesn't read as a
+# crash in start.bat's console.
+logging.getLogger("websockets.server").setLevel(logging.CRITICAL)
+
 _loop: asyncio.AbstractEventLoop | None = None
 _clients: set = set()
 _started = threading.Event()
 
+# Bounds concurrent orchestrator.run() calls (LLM + tool execution, shared
+# SQLite/trace-file writes) from a burst of chat messages. A single real
+# user sends one message at a time; this only throttles the excess, it
+# never drops a message -- the extra threads just block on acquire() until
+# a slot frees.
+_CHAT_CONCURRENCY_CAP = 4
+_chat_semaphore = threading.Semaphore(_CHAT_CONCURRENCY_CAP)
 
-def _handle_chat(text: str) -> None:
+
+def _handle_chat(text: str, model: str | None = None) -> None:
     """Run one text turn through the orchestrator and push the transcript
     back to the face. Runs on a worker thread -- orchestrator.run() is
-    synchronous and slow (LLM calls)."""
-    push_turn("user", text)
-    push_state("idle")  # thinking
-    from sorena.agents import orchestrator  # lazy: keeps face importable without agent deps
+    synchronous and slow (LLM calls). `model` is the user's explicit pick
+    from the chat UI's model dropdown, or None for the default fallback
+    chain (see sorena.router.chat's model_override)."""
+    with _chat_semaphore:
+        push_turn("user", text)
+        push_state("idle")  # thinking
+        from sorena.agents import orchestrator  # lazy: keeps face importable without agent deps
 
-    try:
-        reply = orchestrator.run(text)
-    except Exception as exc:  # surface backend failures in the UI, never drop the turn
-        reply = f"Something went wrong handling that: {exc}"
-    push_turn("assistant", reply)
-    push_state("idle")
+        try:
+            reply = orchestrator.run(text, model_override=model)
+        except Exception as exc:  # surface backend failures in the UI, never drop the turn
+            reply = f"Something went wrong handling that: {exc}"
+        push_turn("assistant", reply)
+        push_state("idle")
 
 
 async def _handler(ws) -> None:
     _clients.add(ws)
+    from sorena.config import PROVIDER_CHAIN  # lazy: keeps face importable without agent deps
+
+    await ws.send(json.dumps({"type": "config", "models": PROVIDER_CHAIN}))
     try:
         async for raw in ws:
             try:
@@ -44,7 +69,9 @@ async def _handler(ws) -> None:
             except (json.JSONDecodeError, TypeError):
                 continue
             if isinstance(msg, dict) and msg.get("type") == "chat" and msg.get("text"):
-                threading.Thread(target=_handle_chat, args=(msg["text"],), daemon=True).start()
+                threading.Thread(
+                    target=_handle_chat, args=(msg["text"], msg.get("model")), daemon=True
+                ).start()
     finally:
         _clients.discard(ws)
 
@@ -61,7 +88,15 @@ def _run_server() -> None:
     asyncio.set_event_loop(_loop)
 
     async def main() -> None:
-        async with websockets.serve(_handler, "localhost", PORT):
+        # origins=[None, "null"]: None covers non-browser clients that send
+        # no Origin header (test clients, local scripts); "null" covers a
+        # real browser opening web/index.html via file:// (an opaque origin
+        # serializes to the literal string "null" per the Fetch spec).
+        # Anything else -- a real https:// origin from a cross-site page --
+        # is rejected at the handshake, closing the cross-site WebSocket
+        # hijacking hole (any open browser tab could otherwise drive the
+        # full orchestrator with zero auth just by knowing this port).
+        async with websockets.serve(_handler, "localhost", PORT, origins=[None, "null"]):
             _started.set()
             await asyncio.Future()  # run until the process exits
 

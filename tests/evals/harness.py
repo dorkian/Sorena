@@ -48,7 +48,7 @@ def scripted_router(monkeypatch, script: list) -> None:
 
     remaining = list(script)
 
-    def fake_chat(messages, tools=None, tool_choice=None):
+    def fake_chat(messages, tools=None, tool_choice=None, model_override=None):
         if not remaining:
             raise AssertionError("eval case script exhausted -- agent asked for another hop")
         return remaining.pop(0)

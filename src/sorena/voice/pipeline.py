@@ -54,9 +54,20 @@ def speak_streaming(text: str) -> float:
     first_audio_at: list[float] = []
 
     def synthesize_worker() -> None:
-        for sentence in sentences:
-            audio_queue.put(tts.synthesize(sentence))
-        audio_queue.put(None)
+        # An unhandled exception here (e.g. onnxruntime OOM on a Conv node --
+        # seen in practice) would otherwise kill this thread silently without
+        # ever queuing the None sentinel, leaving the consumer loop below
+        # blocked on audio_queue.get() forever -- a permanent hang, not a
+        # crash, indistinguishable from one to the user. Catch, queue the
+        # exception itself so the consumer can raise it in the caller's
+        # thread, and always send the sentinel via `finally`.
+        try:
+            for sentence in sentences:
+                audio_queue.put(tts.synthesize(sentence))
+        except Exception as exc:
+            audio_queue.put(exc)
+        finally:
+            audio_queue.put(None)
 
     worker = threading.Thread(target=synthesize_worker, daemon=True)
     worker.start()
@@ -65,6 +76,9 @@ def speak_streaming(text: str) -> float:
         item = audio_queue.get()
         if item is None:
             break
+        if isinstance(item, Exception):
+            worker.join()
+            raise item
         if not first_audio_at:
             first_audio_at.append(time.perf_counter())
         audio, sample_rate = item

@@ -1,5 +1,5 @@
 """Always-on assistant: the face bridge (text chat + orb state, port 8765)
-and the hands-free voice loop in one process, so "hey Jarvis" and the web
+and the hands-free voice loop in one process, so the wake word and the web
 composer work at the same time. Launched by start.bat.
 """
 
@@ -12,9 +12,15 @@ def main() -> None:
     # "reconnecting..." through the cold-load.
     face.start()
     print("Sorena is up -- face bridge on ws://localhost:8765, loading voice pipeline...")
+    from sorena.voice import wakeword
     from sorena.voice.pipeline import run_voice_turn
 
-    print("Listening for 'hey Jarvis'.")
+    # forces _get_model() to run now (resolving WAKEWORD_NAME) instead of on
+    # the first run_voice_turn() call, so this print reflects the model
+    # actually in use rather than the pre-resolution default -- see ADR 0012
+    # for the bug this exact staleness pattern caused elsewhere.
+    wakeword._get_model()
+    print(f"Listening for '{wakeword.WAKEWORD_NAME.replace('_', ' ')}'.")
     while True:
         try:
             run_voice_turn()

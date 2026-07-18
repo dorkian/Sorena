@@ -1,5 +1,13 @@
 import os
 
+from dotenv import load_dotenv
+
+# Must run before the os.getenv() calls below, at import time -- callers that
+# reach this module first (e.g. face.py's on-connect config message) can't
+# rely on litellm's own load_dotenv() side effect happening earlier, the way
+# router.py (which imports litellm before this module) accidentally does.
+load_dotenv()
+
 _DEFAULT_CHAIN = "groq/llama-3.3-70b-versatile,gemini/gemini-3.1-flash-lite"
 _DEFAULT_LIMITS = "groq/llama-3.3-70b-versatile:30,gemini/gemini-3.1-flash-lite:15"
 

@@ -48,9 +48,10 @@ def test_run_delegates_to_classified_specialist_and_logs_event(monkeypatch):
 
     captured = {}
 
-    def fake_agent_run(user_message, system_prompt=None, tool_names=None):
+    def fake_agent_run(user_message, system_prompt=None, tool_names=None, model_override=None):
         captured["system_prompt"] = system_prompt
         captured["tool_names"] = tool_names
+        captured["model_override"] = model_override
         return "your day looks clear"
 
     monkeypatch.setattr(orchestrator.agent, "run", fake_agent_run)
@@ -75,6 +76,25 @@ def test_run_delegates_to_classified_specialist_and_logs_event(monkeypatch):
         "event_type": "handled_message",
         "payload": "your day looks clear",
     }
+    assert captured["model_override"] is None
+
+
+def test_run_passes_model_override_through_to_agent(monkeypatch):
+    monkeypatch.setattr(orchestrator, "_classify", lambda msg: "dayplanner")
+    monkeypatch.setattr(orchestrator.bus, "log_event", lambda *a, **kw: None)
+    monkeypatch.setattr(orchestrator.face, "push_state", lambda *a, **kw: None)
+
+    captured = {}
+
+    def fake_agent_run(user_message, system_prompt=None, tool_names=None, model_override=None):
+        captured["model_override"] = model_override
+        return "ok"
+
+    monkeypatch.setattr(orchestrator.agent, "run", fake_agent_run)
+
+    orchestrator.run("what's my plan today?", model_override="openrouter/openai/gpt-oss-120b")
+
+    assert captured["model_override"] == "openrouter/openai/gpt-oss-120b"
 
 
 def test_run_pushes_the_classified_persona_to_the_face(monkeypatch):
