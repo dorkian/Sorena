@@ -47,7 +47,15 @@ def split_sentences(text: str) -> list[str]:
 def speak_streaming(text: str) -> float:
     """Synthesizes and plays sentence by sentence, overlapping synthesis of the
     next sentence with playback of the current one on a background thread.
-    Returns time-to-first-audio in seconds."""
+    Returns time-to-first-audio in seconds.
+
+    Stoppable mid-turn: a single click/tap on the orb while speaking sends
+    a "stop" WS message (face.py's _handler) that calls tts.request_stop(),
+    which both cuts off whatever's playing right now (sd.stop()) and sets a
+    flag this loop checks -- the worker stops synthesizing further sentences
+    and the consumer stops playing queued ones instead of running the rest
+    of the reply to completion."""
+    tts.clear_stop()
     sentences = split_sentences(text)
     audio_queue: queue.Queue = queue.Queue()
     start = time.perf_counter()
@@ -63,6 +71,8 @@ def speak_streaming(text: str) -> float:
         # thread, and always send the sentinel via `finally`.
         try:
             for sentence in sentences:
+                if tts.stop_requested():
+                    break
                 audio_queue.put(tts.synthesize(sentence))
         except Exception as exc:
             audio_queue.put(exc)
@@ -79,6 +89,8 @@ def speak_streaming(text: str) -> float:
         if isinstance(item, Exception):
             worker.join()
             raise item
+        if tts.stop_requested():
+            break
         if not first_audio_at:
             first_audio_at.append(time.perf_counter())
         audio, sample_rate = item
@@ -119,13 +131,13 @@ def run_voice_turn(
     wake_latency = wakeword.listen_for_wakeword()
 
     face.push_state("listening", agent=persona)
-    audio = stt.record(5.0)
+    audio = stt.record_until_silence()
     if not vad.has_speech(audio):
         face.push_state("idle", agent=persona)
         tts.speak("I didn't hear anything.")
         return {"wake_latency": wake_latency, "transcript": None, "reply": None}
 
-    face.push_state("idle", agent=persona)  # thinking -- idle's violet->cyan palette covers this
+    face.push_state("thinking", agent=persona)
     transcript = stt.transcribe(audio)
     face.push_turn("user", transcript, agent=persona)
     reply = agent.run(transcript, system_prompt=system_prompt, tool_names=tool_names)

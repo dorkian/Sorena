@@ -94,7 +94,7 @@ def test_strip_markdown_handles_realistic_mixed_reply():
 
 def test_run_voice_turn_strips_markdown_before_speaking_but_not_before_pushing_turn(monkeypatch):
     monkeypatch.setattr(pipeline.wakeword, "listen_for_wakeword", lambda: 0.05)
-    monkeypatch.setattr(pipeline.stt, "record", lambda seconds: "audio")
+    monkeypatch.setattr(pipeline.stt, "record_until_silence", lambda: "audio")
     monkeypatch.setattr(pipeline.vad, "has_speech", lambda audio: True)
     monkeypatch.setattr(pipeline.stt, "transcribe", lambda audio: "how did I do")
     monkeypatch.setattr(
@@ -167,6 +167,44 @@ def test_speak_streaming_raises_instead_of_hanging_on_synthesis_failure(monkeypa
     assert "simulated onnxruntime allocation failure" in str(outcome["error"])
 
 
+def test_speak_streaming_stops_early_when_stop_is_requested_mid_turn(monkeypatch):
+    # A click/tap on the orb while speaking sends "stop" -> tts.request_stop()
+    # (face.py). Regression guard for speak_streaming's two check points: the
+    # synth worker must stop producing further sentences, and the consumer
+    # must stop playing queued ones, instead of running the rest of the
+    # reply to completion.
+    synthesize_calls = []
+    play_calls = []
+    one_played = threading.Event()
+
+    def fake_synthesize(text):
+        synthesize_calls.append(text)
+        if text == "Two.":
+            # Real playback blocks (sd.wait()), so "One." is already playing
+            # by the time "Two." finishes synthesizing. The fakes here are
+            # instant, so without this wait the worker thread could race
+            # ahead and set the stop flag before the consumer thread gets
+            # scheduled at all -- forcing the same before/after ordering
+            # the real blocking playback guarantees.
+            assert one_played.wait(timeout=2), "consumer never played 'One.' before 'Two.' synth"
+            pipeline.tts.request_stop()
+        return (text, 16000)
+
+    def fake_play(audio, sr):
+        play_calls.append((audio, sr))
+        if audio == "One.":
+            one_played.set()
+
+    monkeypatch.setattr(pipeline.tts, "synthesize", fake_synthesize)
+    monkeypatch.setattr(pipeline.tts, "play", fake_play)
+    monkeypatch.setattr(pipeline.tts.sd, "stop", lambda: None)  # no real audio hardware in a test
+
+    pipeline.speak_streaming("One. Two. Three.")
+
+    assert synthesize_calls == ["One.", "Two."]
+    assert play_calls == [("One.", 16000)]
+
+
 def test_speak_naive_synthesizes_full_text_once(monkeypatch):
     synthesize_calls = []
     play_calls = []
@@ -184,7 +222,7 @@ def test_speak_naive_synthesizes_full_text_once(monkeypatch):
 
 def test_run_voice_turn_skips_transcription_when_no_speech(monkeypatch):
     monkeypatch.setattr(pipeline.wakeword, "listen_for_wakeword", lambda: 0.05)
-    monkeypatch.setattr(pipeline.stt, "record", lambda seconds: "audio")
+    monkeypatch.setattr(pipeline.stt, "record_until_silence", lambda: "audio")
     monkeypatch.setattr(pipeline.vad, "has_speech", lambda audio: False)
 
     spoke = []
@@ -203,7 +241,7 @@ def test_run_voice_turn_skips_transcription_when_no_speech(monkeypatch):
 
 def test_run_voice_turn_full_happy_path(monkeypatch):
     monkeypatch.setattr(pipeline.wakeword, "listen_for_wakeword", lambda: 0.05)
-    monkeypatch.setattr(pipeline.stt, "record", lambda seconds: "audio")
+    monkeypatch.setattr(pipeline.stt, "record_until_silence", lambda: "audio")
     monkeypatch.setattr(pipeline.vad, "has_speech", lambda audio: True)
     monkeypatch.setattr(pipeline.stt, "transcribe", lambda audio: "what time is it")
     monkeypatch.setattr(
@@ -220,7 +258,7 @@ def test_run_voice_turn_full_happy_path(monkeypatch):
 
 def test_run_voice_turn_passes_system_prompt_and_tool_names_to_agent(monkeypatch):
     monkeypatch.setattr(pipeline.wakeword, "listen_for_wakeword", lambda: 0.05)
-    monkeypatch.setattr(pipeline.stt, "record", lambda seconds: "audio")
+    monkeypatch.setattr(pipeline.stt, "record_until_silence", lambda: "audio")
     monkeypatch.setattr(pipeline.vad, "has_speech", lambda audio: True)
     monkeypatch.setattr(pipeline.stt, "transcribe", lambda audio: "quiz me")
     monkeypatch.setattr(pipeline, "speak_streaming", lambda text: 0.2)
@@ -242,7 +280,7 @@ def test_run_voice_turn_passes_system_prompt_and_tool_names_to_agent(monkeypatch
 
 def test_run_voice_turn_pushes_persona_to_the_face_at_every_state(monkeypatch):
     monkeypatch.setattr(pipeline.wakeword, "listen_for_wakeword", lambda: 0.05)
-    monkeypatch.setattr(pipeline.stt, "record", lambda seconds: "audio")
+    monkeypatch.setattr(pipeline.stt, "record_until_silence", lambda: "audio")
     monkeypatch.setattr(pipeline.vad, "has_speech", lambda audio: True)
     monkeypatch.setattr(pipeline.stt, "transcribe", lambda audio: "hi")
     monkeypatch.setattr(
@@ -260,4 +298,4 @@ def test_run_voice_turn_pushes_persona_to_the_face_at_every_state(monkeypatch):
     persona = {"name": "Rostam", "color": "#D9534F", "icon": "interviewer.svg"}
     pipeline.run_voice_turn(persona=persona)
 
-    assert pushed_agents == [persona] * 4  # listening, idle (thinking), speaking, idle
+    assert pushed_agents == [persona] * 4  # listening, thinking, speaking, idle

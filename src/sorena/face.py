@@ -29,6 +29,13 @@ _loop: asyncio.AbstractEventLoop | None = None
 _clients: set = set()
 _started = threading.Event()
 
+# Set by main.py once the voice pipeline's models (wake word, etc.) have
+# finished loading -- a fresh browser tab needs this in its initial config
+# message (not just a broadcast) since it may connect before or after that
+# happens. Text chat doesn't depend on it and stays usable regardless; this
+# only gates the "ready to listen" indicator in the UI.
+_ready = False
+
 # Bounds concurrent orchestrator.run() calls (LLM + tool execution, shared
 # SQLite/trace-file writes) from a burst of chat messages. A single real
 # user sends one message at a time; this only throttles the excess, it
@@ -46,7 +53,7 @@ def _handle_chat(text: str, model: str | None = None) -> None:
     chain (see sorena.router.chat's model_override)."""
     with _chat_semaphore:
         push_turn("user", text)
-        push_state("idle")  # thinking
+        push_state("thinking")
         from sorena.agents import orchestrator  # lazy: keeps face importable without agent deps
 
         try:
@@ -61,17 +68,26 @@ async def _handler(ws) -> None:
     _clients.add(ws)
     from sorena.config import PROVIDER_CHAIN  # lazy: keeps face importable without agent deps
 
-    await ws.send(json.dumps({"type": "config", "models": PROVIDER_CHAIN}))
+    await ws.send(json.dumps({"type": "config", "models": PROVIDER_CHAIN, "ready": _ready}))
     try:
         async for raw in ws:
             try:
                 msg = json.loads(raw)
             except (json.JSONDecodeError, TypeError):
                 continue
-            if isinstance(msg, dict) and msg.get("type") == "chat" and msg.get("text"):
+            if not isinstance(msg, dict):
+                continue
+            if msg.get("type") == "chat" and msg.get("text"):
                 threading.Thread(
                     target=_handle_chat, args=(msg["text"], msg.get("model")), daemon=True
                 ).start()
+            elif msg.get("type") == "stop":
+                # single click/tap on the orb while it's speaking -- lazy
+                # import keeps face importable in text-only mode without
+                # pulling in the voice stack (sounddevice/piper).
+                from sorena.voice import tts
+
+                tts.request_stop()
     finally:
         _clients.discard(ws)
 
@@ -88,15 +104,23 @@ def _run_server() -> None:
     asyncio.set_event_loop(_loop)
 
     async def main() -> None:
-        # origins=[None, "null"]: None covers non-browser clients that send
-        # no Origin header (test clients, local scripts); "null" covers a
-        # real browser opening web/index.html via file:// (an opaque origin
-        # serializes to the literal string "null" per the Fetch spec).
-        # Anything else -- a real https:// origin from a cross-site page --
-        # is rejected at the handshake, closing the cross-site WebSocket
-        # hijacking hole (any open browser tab could otherwise drive the
-        # full orchestrator with zero auth just by knowing this port).
-        async with websockets.serve(_handler, "localhost", PORT, origins=[None, "null"]):
+        # None covers non-browser clients that send no Origin header (test
+        # clients, local scripts); "null" covers a browser opening
+        # web/index.html directly via file:// (an opaque origin serializes
+        # to the literal string "null" per the Fetch spec);
+        # "http://localhost:8420" covers the actual production launch path
+        # -- start.bat serves web/ over plain HTTP on that port rather than
+        # opening it as a file:// page, so its real Origin header is that
+        # exact string, not "null". Anything else -- a real origin from some
+        # other, cross-site page -- is rejected at the handshake, closing
+        # the cross-site WebSocket hijacking hole (any open browser tab
+        # could otherwise drive the full orchestrator with zero auth just
+        # by knowing this port); a malicious page cannot spoof its Origin
+        # header to claim to be localhost:8420, since browsers set it from
+        # the page's real origin and JS cannot override it.
+        async with websockets.serve(
+            _handler, "localhost", PORT, origins=[None, "null", "http://localhost:8420"]
+        ):
             _started.set()
             await asyncio.Future()  # run until the process exits
 
@@ -129,6 +153,18 @@ def push_state(state: str, level: float | None = None, agent: dict | None = None
     if agent is not None:
         payload["agent"] = agent
     asyncio.run_coroutine_threadsafe(_broadcast(json.dumps(payload)), _loop)
+
+
+def set_ready() -> None:
+    """Marks the voice pipeline as ready to listen (wake word model loaded)
+    and tells any already-connected browser tab -- a tab that connects
+    *after* this still gets it via the initial config message's "ready"
+    field, so timing between the two never matters."""
+    global _ready
+    _ready = True
+    if _loop is None:
+        return
+    asyncio.run_coroutine_threadsafe(_broadcast(json.dumps({"type": "ready"})), _loop)
 
 
 def push_turn(role: str, text: str, agent: dict | None = None) -> None:

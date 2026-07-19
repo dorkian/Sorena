@@ -85,8 +85,10 @@
     background: currentColor;
     transition: background 200ms ease-out;
   }
+  #state-line.thinking  { color: oklch(0.75 0.13 290); }
   #state-line.listening { color: oklch(0.82 0.11 190); }
   #state-line.speaking  { color: var(--accent); }
+  #orbwrap.stoppable { cursor: pointer; }
 
   /* ---- persona roster ---------------------------------------------- */
   #roster {
@@ -350,8 +352,8 @@
           <div id="agent-role">orchestrator</div>
         </div>
       </div>
-      <div id="state-line" aria-live="polite">
-        <span id="state-dot"></span><span id="state-text">idle</span>
+      <div id="state-line" class="starting" aria-live="polite">
+        <span id="state-dot"></span><span id="state-text">starting up…</span>
       </div>
     </div>
     <div id="roster" aria-label="Specialists"></div>
@@ -440,6 +442,7 @@ const SorenaOrb = (() => {
 
   const PALETTES = {
     idle:      [[91, 79, 216], [56, 182, 216]],
+    thinking:  [[130, 90, 230], [80, 130, 240]],
     listening: [[47, 212, 200], [130, 235, 255]],
     speaking:  [[242, 179, 61], [236, 116, 45]],
   };
@@ -449,7 +452,7 @@ const SorenaOrb = (() => {
   let cA = [...PALETTES.idle[0]], cB = [...PALETTES.idle[1]];
   let energy = 0.25, level = 0.5, externalLevel = false, t = 0;
   const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const ENERGY_TARGET = { idle: 0.25, listening: 0.7, speaking: 1.0 };
+  const ENERGY_TARGET = { idle: 0.25, thinking: 0.5, listening: 0.7, speaking: 1.0 };
 
   const L = (a, b, k) => a + (b - a) * k;
   const rotY = (p, a) => { const c = Math.cos(a), s = Math.sin(a);
@@ -462,6 +465,7 @@ const SorenaOrb = (() => {
   function simulatedLevel() {
     if (state === 'listening') return 0.5 + 0.35 * Math.sin(t * 5) + 0.2 * Math.sin(t * 12.3);
     if (state === 'speaking') return 0.55 + 0.45 * Math.abs(Math.sin(t * 6.2)) * Math.sin(t * 1.7 + 1);
+    if (state === 'thinking') return 0.5 + 0.4 * Math.sin(t * 3.2);
     return 0.5 + 0.5 * Math.sin(t * 1.1);
   }
 
@@ -488,6 +492,10 @@ const SorenaOrb = (() => {
         rr = R * (1 + 0.09 * energy * Math.sin(t * 5 - lat * 4 + p.ph * 0.3));
       } else if (state === 'listening') {
         rr = R * (1 - 0.10 * energy * lv) + 3 * Math.sin(t * 2 + p.ph);
+      } else if (state === 'thinking') {
+        // faster, rhythmic pulse -- reads as "actively processing" at a
+        // glance, distinct from idle's slow ambient drift below.
+        rr = R * (1 + 0.07 * energy * Math.sin(t * 3.4 + p.ph * 0.5));
       } else {
         rr = R * (1 + 0.035 * Math.sin(t * 1.1 + p.ph));
       }
@@ -557,7 +565,9 @@ const SorenaOrb = (() => {
     researcher:   { name: 'Simurgh',    color: '#2FD4C8', role: 'researcher', icon: 'researcher.svg' },
     jobscout:     { name: 'Arash',      color: '#E8792B', role: 'job scout', icon: 'jobscout.svg' },
   };
-  const STATE_TEXT = { idle: 'idle', listening: 'listening…', speaking: 'speaking' };
+  const STATE_TEXT = {
+    idle: 'idle', thinking: 'thinking…', listening: 'listening…', speaking: 'speaking',
+  };
   const keyByName = Object.fromEntries(Object.entries(PERSONAS).map(([k, p]) => [p.name, k]));
 
   // litellm model strings are "provider/model" or "provider/org/model"
@@ -602,7 +612,18 @@ const SorenaOrb = (() => {
     SorenaOrb.setState(s);
     $('state-text').textContent = STATE_TEXT[s] || s;
     $('state-line').className = s;
+    // orb is only clickable-to-stop while actually speaking
+    $('orbwrap').classList.toggle('stoppable', s === 'speaking');
+    $('orbwrap').title = s === 'speaking' ? 'Tap to stop' : '';
   }
+
+  // click/tap the orb while it's speaking to interrupt playback immediately
+  // (backend: face.py's "stop" message -> tts.request_stop())
+  $('orbwrap').addEventListener('click', () => {
+    if (live && $('orbwrap').classList.contains('stoppable')) {
+      ws.send(JSON.stringify({ type: 'stop' }));
+    }
+  });
 
   // ---- markdown rendering (assistant turns only -- user text stays plain) ---
   // Not a full CommonMark parser, just the constructs an LLM reply actually
@@ -758,6 +779,10 @@ const SorenaOrb = (() => {
       if (msg.state) setState(msg.state);
       if (typeof msg.level === 'number') SorenaOrb.setLevel(msg.level);
       if (msg.type === 'turn') addTurn(msg.role, msg.text, msg.agent);
+      // "starting up…" (voice pipeline still loading wake word models) ->
+      // "idle" (ready to listen). Chat itself works from connect regardless
+      // -- this only affects the orb's own status label.
+      if (msg.type === 'ready' || (msg.type === 'config' && msg.ready)) setState('idle');
       if (msg.type === 'config' && Array.isArray(msg.models)) {
         // repopulate on every (re)connect -- the server's chain is the
         // source of truth, so a stale local list never outlives it

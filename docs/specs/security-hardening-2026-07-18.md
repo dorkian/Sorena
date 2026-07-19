@@ -1,5 +1,18 @@
 # Security Hardening — Face Bridge, File Search, Prompt-Injection Framing
 
+## Addendum (2026-07-18, later same day)
+
+Requirement 1's Origin allowlist (`origins=[None, "null"]`) broke the real
+launch path: `start.bat` serves `web/` over plain HTTP on port 8420 via
+`python -m http.server`, not as a `file://` page — its actual Origin header
+is `"http://localhost:8420"`, which wasn't in the allowlist, so the UI
+showed "Backend offline" every time it was launched the normal way. Fixed
+by adding that exact origin to the allowlist in `face.py`, with a
+regression test (`test_accepts_start_bat_origin_connection` in
+`tests/test_face.py`) covering it. The `file://`/`"null"` case documented
+below is still valid (opening `web/index.html` directly as a file also
+works) — it just isn't how `start.bat` actually launches it.
+
 Spec for the fixes agreed on in the 2026-07-18 security audit of the Sorena
 codebase. Not a numbered roadmap phase — ongoing hardening, same category as
 the orb face addition.

@@ -20,6 +20,7 @@ def main() -> None:
     # actually in use rather than the pre-resolution default -- see ADR 0012
     # for the bug this exact staleness pattern caused elsewhere.
     wakeword._get_model()
+    face.set_ready()
     print(f"Listening for '{wakeword.WAKEWORD_NAME.replace('_', ' ')}'.")
     while True:
         try:
