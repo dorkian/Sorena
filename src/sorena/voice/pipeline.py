@@ -4,9 +4,12 @@ import threading
 import time
 
 from sorena import agent, face
+from sorena.memory import ConversationMemory
 from sorena.voice import stt, tts, vad, wakeword
 
 SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
+
+NO_SPEECH_MESSAGE = {"en": "I didn't hear anything.", "it": "Non ho sentito nulla."}
 
 # Markdown an LLM reply routinely contains, stripped before TTS so Piper
 # speaks the words, not the literal symbols ("asterisk asterisk bold
@@ -44,7 +47,7 @@ def split_sentences(text: str) -> list[str]:
     return sentences or [text]
 
 
-def speak_streaming(text: str) -> float:
+def speak_streaming(text: str, language: str = "en") -> float:
     """Synthesizes and plays sentence by sentence, overlapping synthesis of the
     next sentence with playback of the current one on a background thread.
     Returns time-to-first-audio in seconds.
@@ -73,7 +76,7 @@ def speak_streaming(text: str) -> float:
             for sentence in sentences:
                 if tts.stop_requested():
                     break
-                audio_queue.put(tts.synthesize(sentence))
+                audio_queue.put(tts.synthesize(sentence, language=language))
         except Exception as exc:
             audio_queue.put(exc)
         finally:
@@ -100,12 +103,12 @@ def speak_streaming(text: str) -> float:
     return first_audio_at[0] - start if first_audio_at else 0.0
 
 
-def speak_naive(text: str) -> float:
+def speak_naive(text: str, language: str = "en") -> float:
     """Baseline: synthesize the entire response as one clip, then play it.
     Returns time-to-first-audio in seconds, for comparison against
     speak_streaming()."""
     start = time.perf_counter()
-    audio, sample_rate = tts.synthesize(text)
+    audio, sample_rate = tts.synthesize(text, language=language)
     first_audio_at = time.perf_counter()
     tts.play(audio, sample_rate)
     return first_audio_at - start
@@ -115,6 +118,8 @@ def run_voice_turn(
     system_prompt: str | None = None,
     tool_names: list[str] | None = None,
     persona: dict | None = None,
+    language: str = "en",
+    memory: ConversationMemory | None = None,
 ) -> dict:
     """One full hands-free turn: wake word -> VAD-gated listen -> transcribe
     -> agent loop (Phase 2) -> streaming TTS response. Pushes state to the
@@ -126,7 +131,16 @@ def run_voice_turn(
     for text mode -- omit both for the default, unscoped assistant. `persona`
     is that specialist's face info ({"name", "color", "icon"}, see
     sorena.agents.personas) so the orb tints/labels itself accordingly while
-    this turn is active."""
+    this turn is active. `language` is an explicit "en"/"it" choice (see
+    docs/adr/0013-bilingual-en-it-voice-support.md) -- not auto-detected,
+    since STT needs to know which language it's listening for before it can
+    transcribe accurately, so there's nothing to detect from yet. `memory` is
+    optional and unused by the default single-shot callers (main.py's loop,
+    examples/demo_voice_pipeline.py) -- pass the same ConversationMemory
+    across repeated calls to hold one continuous conversation instead of a
+    fresh, context-free one on every wake-word turn (see
+    examples/interview_practice.py, which needs that for the interviewer to
+    remember its own previous question when scoring the answer)."""
     face.start()
     wake_latency = wakeword.listen_for_wakeword()
 
@@ -134,17 +148,17 @@ def run_voice_turn(
     audio = stt.record_until_silence()
     if not vad.has_speech(audio):
         face.push_state("idle", agent=persona)
-        tts.speak("I didn't hear anything.")
+        tts.speak(NO_SPEECH_MESSAGE[language], language=language)
         return {"wake_latency": wake_latency, "transcript": None, "reply": None}
 
     face.push_state("thinking", agent=persona)
-    transcript = stt.transcribe(audio)
+    transcript = stt.transcribe(audio, language=language)
     face.push_turn("user", transcript, agent=persona)
-    reply = agent.run(transcript, system_prompt=system_prompt, tool_names=tool_names)
+    reply = agent.run(transcript, memory=memory, system_prompt=system_prompt, tool_names=tool_names)
     face.push_turn("assistant", reply, agent=persona)
 
     face.push_state("speaking", agent=persona)
-    time_to_first_audio = speak_streaming(strip_markdown_for_speech(reply))
+    time_to_first_audio = speak_streaming(strip_markdown_for_speech(reply), language=language)
     face.push_state("idle", agent=persona)
 
     return {

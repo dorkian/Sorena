@@ -96,15 +96,17 @@ def test_run_voice_turn_strips_markdown_before_speaking_but_not_before_pushing_t
     monkeypatch.setattr(pipeline.wakeword, "listen_for_wakeword", lambda: 0.05)
     monkeypatch.setattr(pipeline.stt, "record_until_silence", lambda: "audio")
     monkeypatch.setattr(pipeline.vad, "has_speech", lambda audio: True)
-    monkeypatch.setattr(pipeline.stt, "transcribe", lambda audio: "how did I do")
+    monkeypatch.setattr(pipeline.stt, "transcribe", lambda audio, language="en": "how did I do")
     monkeypatch.setattr(
         pipeline.agent,
         "run",
-        lambda message, system_prompt=None, tool_names=None: "You scored **86/100**.",
+        lambda message, memory=None, system_prompt=None, tool_names=None: "You scored **86/100**.",
     )
 
     spoken = []
-    monkeypatch.setattr(pipeline, "speak_streaming", lambda text: spoken.append(text) or 0.2)
+    monkeypatch.setattr(
+        pipeline, "speak_streaming", lambda text, language="en": spoken.append(text) or 0.2
+    )
 
     pushed_turns = []
     monkeypatch.setattr(
@@ -124,7 +126,9 @@ def test_speak_streaming_synthesizes_and_plays_each_sentence(monkeypatch):
     play_calls = []
 
     monkeypatch.setattr(
-        pipeline.tts, "synthesize", lambda text: synthesize_calls.append(text) or (text, 16000)
+        pipeline.tts,
+        "synthesize",
+        lambda text, language="en": synthesize_calls.append(text) or (text, 16000),
     )
     monkeypatch.setattr(pipeline.tts, "play", lambda audio, sr: play_calls.append((audio, sr)))
 
@@ -142,7 +146,7 @@ def test_speak_streaming_raises_instead_of_hanging_on_synthesis_failure(monkeypa
     # permanent hang, not a crash. Run speak_streaming on its own thread with
     # a bounded join so a regression back to that hang fails this test
     # quickly instead of freezing the whole suite.
-    def fake_synthesize(text):
+    def fake_synthesize(text, language="en"):
         if text == "Two.":
             raise RuntimeError("simulated onnxruntime allocation failure")
         return (text, 16000)
@@ -177,7 +181,7 @@ def test_speak_streaming_stops_early_when_stop_is_requested_mid_turn(monkeypatch
     play_calls = []
     one_played = threading.Event()
 
-    def fake_synthesize(text):
+    def fake_synthesize(text, language="en"):
         synthesize_calls.append(text)
         if text == "Two.":
             # Real playback blocks (sd.wait()), so "One." is already playing
@@ -210,7 +214,9 @@ def test_speak_naive_synthesizes_full_text_once(monkeypatch):
     play_calls = []
 
     monkeypatch.setattr(
-        pipeline.tts, "synthesize", lambda text: synthesize_calls.append(text) or (text, 16000)
+        pipeline.tts,
+        "synthesize",
+        lambda text, language="en": synthesize_calls.append(text) or (text, 16000),
     )
     monkeypatch.setattr(pipeline.tts, "play", lambda audio, sr: play_calls.append((audio, sr)))
 
@@ -226,9 +232,9 @@ def test_run_voice_turn_skips_transcription_when_no_speech(monkeypatch):
     monkeypatch.setattr(pipeline.vad, "has_speech", lambda audio: False)
 
     spoke = []
-    monkeypatch.setattr(pipeline.tts, "speak", lambda text: spoke.append(text))
+    monkeypatch.setattr(pipeline.tts, "speak", lambda text, language="en": spoke.append(text))
 
-    def fail_transcribe(audio):
+    def fail_transcribe(audio, language="en"):
         raise AssertionError("should not transcribe when VAD detects no speech")
 
     monkeypatch.setattr(pipeline.stt, "transcribe", fail_transcribe)
@@ -243,11 +249,13 @@ def test_run_voice_turn_full_happy_path(monkeypatch):
     monkeypatch.setattr(pipeline.wakeword, "listen_for_wakeword", lambda: 0.05)
     monkeypatch.setattr(pipeline.stt, "record_until_silence", lambda: "audio")
     monkeypatch.setattr(pipeline.vad, "has_speech", lambda audio: True)
-    monkeypatch.setattr(pipeline.stt, "transcribe", lambda audio: "what time is it")
+    monkeypatch.setattr(pipeline.stt, "transcribe", lambda audio, language="en": "what time is it")
     monkeypatch.setattr(
-        pipeline.agent, "run", lambda message, system_prompt=None, tool_names=None: "It is noon."
+        pipeline.agent,
+        "run",
+        lambda message, memory=None, system_prompt=None, tool_names=None: "It is noon.",
     )
-    monkeypatch.setattr(pipeline, "speak_streaming", lambda text: 0.2)
+    monkeypatch.setattr(pipeline, "speak_streaming", lambda text, language="en": 0.2)
 
     result = pipeline.run_voice_turn()
 
@@ -260,12 +268,12 @@ def test_run_voice_turn_passes_system_prompt_and_tool_names_to_agent(monkeypatch
     monkeypatch.setattr(pipeline.wakeword, "listen_for_wakeword", lambda: 0.05)
     monkeypatch.setattr(pipeline.stt, "record_until_silence", lambda: "audio")
     monkeypatch.setattr(pipeline.vad, "has_speech", lambda audio: True)
-    monkeypatch.setattr(pipeline.stt, "transcribe", lambda audio: "quiz me")
-    monkeypatch.setattr(pipeline, "speak_streaming", lambda text: 0.2)
+    monkeypatch.setattr(pipeline.stt, "transcribe", lambda audio, language="en": "quiz me")
+    monkeypatch.setattr(pipeline, "speak_streaming", lambda text, language="en": 0.2)
 
     captured = {}
 
-    def fake_agent_run(message, system_prompt=None, tool_names=None):
+    def fake_agent_run(message, memory=None, system_prompt=None, tool_names=None):
         captured["system_prompt"] = system_prompt
         captured["tool_names"] = tool_names
         return "reply"
@@ -282,11 +290,13 @@ def test_run_voice_turn_pushes_persona_to_the_face_at_every_state(monkeypatch):
     monkeypatch.setattr(pipeline.wakeword, "listen_for_wakeword", lambda: 0.05)
     monkeypatch.setattr(pipeline.stt, "record_until_silence", lambda: "audio")
     monkeypatch.setattr(pipeline.vad, "has_speech", lambda audio: True)
-    monkeypatch.setattr(pipeline.stt, "transcribe", lambda audio: "hi")
+    monkeypatch.setattr(pipeline.stt, "transcribe", lambda audio, language="en": "hi")
     monkeypatch.setattr(
-        pipeline.agent, "run", lambda message, system_prompt=None, tool_names=None: "hello"
+        pipeline.agent,
+        "run",
+        lambda message, memory=None, system_prompt=None, tool_names=None: "hello",
     )
-    monkeypatch.setattr(pipeline, "speak_streaming", lambda text: 0.2)
+    monkeypatch.setattr(pipeline, "speak_streaming", lambda text, language="en": 0.2)
 
     pushed_agents = []
     monkeypatch.setattr(
@@ -299,3 +309,72 @@ def test_run_voice_turn_pushes_persona_to_the_face_at_every_state(monkeypatch):
     pipeline.run_voice_turn(persona=persona)
 
     assert pushed_agents == [persona] * 4  # listening, thinking, speaking, idle
+
+
+def test_run_voice_turn_passes_language_to_stt_and_tts(monkeypatch):
+    monkeypatch.setattr(pipeline.wakeword, "listen_for_wakeword", lambda: 0.05)
+    monkeypatch.setattr(pipeline.stt, "record_until_silence", lambda: "audio")
+    monkeypatch.setattr(pipeline.vad, "has_speech", lambda audio: True)
+    monkeypatch.setattr(
+        pipeline.agent,
+        "run",
+        lambda message, memory=None, system_prompt=None, tool_names=None: "risposta",
+    )
+
+    captured = {}
+    monkeypatch.setattr(
+        pipeline.stt,
+        "transcribe",
+        lambda audio, language="en": captured.setdefault("stt_language", language) or "domanda",
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "speak_streaming",
+        lambda text, language="en": captured.setdefault("tts_language", language) or 0.2,
+    )
+
+    pipeline.run_voice_turn(language="it")
+
+    assert captured["stt_language"] == "it"
+    assert captured["tts_language"] == "it"
+
+
+def test_run_voice_turn_no_speech_message_is_localized(monkeypatch):
+    monkeypatch.setattr(pipeline.wakeword, "listen_for_wakeword", lambda: 0.05)
+    monkeypatch.setattr(pipeline.stt, "record_until_silence", lambda: "audio")
+    monkeypatch.setattr(pipeline.vad, "has_speech", lambda audio: False)
+
+    spoke = []
+    monkeypatch.setattr(
+        pipeline.tts, "speak", lambda text, language="en": spoke.append((text, language))
+    )
+
+    pipeline.run_voice_turn(language="it")
+
+    assert spoke == [("Non ho sentito nulla.", "it")]
+
+
+def test_run_voice_turn_passes_the_shared_memory_through_to_agent_run(monkeypatch):
+    # Every voice turn is wake-word-gated on its own -- without passing the
+    # same ConversationMemory across turns, a specialist like the Interviewer
+    # would forget its own previous question by the time it needs to score
+    # the answer. Regression guard for that continuity (see
+    # examples/interview_practice.py).
+    monkeypatch.setattr(pipeline.wakeword, "listen_for_wakeword", lambda: 0.05)
+    monkeypatch.setattr(pipeline.stt, "record_until_silence", lambda: "audio")
+    monkeypatch.setattr(pipeline.vad, "has_speech", lambda audio: True)
+    monkeypatch.setattr(pipeline.stt, "transcribe", lambda audio, language="en": "hi")
+    monkeypatch.setattr(pipeline, "speak_streaming", lambda text, language="en": 0.2)
+
+    captured = {}
+
+    def fake_agent_run(message, memory=None, system_prompt=None, tool_names=None):
+        captured["memory"] = memory
+        return "hello"
+
+    monkeypatch.setattr(pipeline.agent, "run", fake_agent_run)
+
+    shared_memory = pipeline.ConversationMemory()
+    pipeline.run_voice_turn(memory=shared_memory)
+
+    assert captured["memory"] is shared_memory

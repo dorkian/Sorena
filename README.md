@@ -4,8 +4,7 @@
 
 Local-first, $0/month Jarvis-style AI assistant, built phase by phase. Each phase adds one capability and ships as a tagged release — see [`docs/specs/`](docs/specs/README.md) for the full roadmap.
 
-![demo](docs/demo.gif)
-<!-- demo GIF placeholder — replace after Phase 4 (voice pipeline) ships -->
+![Sorena face UI mid-reply, orb glowing gold in the speaking state](docs/screenshots/speaking.png)
 
 ## Architecture
 
@@ -48,6 +47,8 @@ uv run python -m sorena.face     # start the bridge
 ```
 
 `web/orb.html` remains the minimal orb-only face used by the voice pipeline docs.
+
+![Sorena face UI idle, waiting for a wake word or typed message](docs/screenshots/idle.png)
 
 ## Quickstart
 
@@ -257,6 +258,22 @@ has_speech (silence): False
 has_speech (speech): True
 ```
 
+**Bilingual (English/Italian) voice mode** — `language="en"|"it"` is an
+explicit parameter threaded through `stt.transcribe`, `tts.synthesize`/
+`speak`, and `pipeline.run_voice_turn` (not auto-detected — see
+[ADR 0013](docs/adr/0013-bilingual-en-it-voice-support.md) for why). STT uses
+a multilingual Whisper model; TTS switches between two Piper voices
+(`en_US-danny-low` / `it_IT-riccardo-x_low`), downloading each on first use.
+
+```bash
+uv run python examples/interview_practice.py   # pick en/it, then say "hey sorena" per answer
+```
+
+A hands-free mock interview with Rostam that holds a real back-and-forth:
+unlike a single `run_voice_turn()` call, this reuses one `ConversationMemory`
+across every wake-word turn so Rostam remembers its own previous question
+when it scores your answer.
+
 ## Demo: orb face
 
 A visual face for the voice pipeline: `web/orb.html` is a self-contained canvas particle-sphere (no build step, no dependencies) that shifts palette and motion with agent state — violet→cyan while idle/thinking, turquoise while listening, gold while speaking. `src/sorena/face.py` pushes state over a local WebSocket as `run_voice_turn()` (`pipeline.py`) progresses, using the same background-thread async-bridge pattern as the MCP client (ADR 0004) — see [ADR 0009](docs/adr/0009-orb-face-bare-websockets-background-thread.md) for why a bare `websockets` server instead of a web framework.
@@ -268,6 +285,10 @@ uv run python examples/demo_face.py   # cycles every state without needing real 
 Open `web/orb.html` directly in a browser (`file://`, no server needed for the page itself) while that's running. It reconnects automatically if opened before Sorena starts.
 
 `push_state()` never blocks the pipeline — no browser tab open is a no-op, not an error.
+
+| idle | listening | thinking | speaking |
+|---|---|---|---|
+| ![idle](docs/screenshots/idle.png) | ![listening](docs/screenshots/listening.png) | ![thinking](docs/screenshots/thinking.png) | ![speaking](docs/screenshots/speaking.png) |
 
 ## Demo: memory & RAG
 

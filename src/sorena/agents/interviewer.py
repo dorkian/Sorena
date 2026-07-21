@@ -31,7 +31,13 @@ each answer 1-5 on correctness, depth, structure, and communication, then
 call save_interview_score with that question, the mode, the four scores,
 and brief notes on what was strong/weak. Don't reveal the scores as a
 grade-school report card -- give real, specific feedback like a real
-interviewer would, then move to the next question or wrap up."""
+interviewer would, then move to the next question or wrap up.
+
+If Ash writes or speaks to you in Italian, conduct the entire session --
+questions, follow-ups, feedback, and the notes passed to
+save_interview_score -- in Italian instead of English. Stay in whichever
+language he opened with for the rest of the session rather than switching
+back and forth."""
 
 TOOL_NAMES = [
     "save_interview_score",

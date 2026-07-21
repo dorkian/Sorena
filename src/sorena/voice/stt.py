@@ -4,7 +4,11 @@ from faster_whisper import WhisperModel
 from scipy.signal import resample_poly
 
 SAMPLE_RATE = 16000
-MODEL_SIZE = "base.en"
+# multilingual, not "base.en" -- transcribe() needs to handle both English
+# and Italian (see docs/adr/0013-bilingual-en-it-voice-support.md). Slightly
+# less sharp on English-only audio than the .en variant, but running two
+# loaded models for one process wasn't worth it for that difference.
+MODEL_SIZE = "base"
 
 _model: WhisperModel | None = None
 
@@ -104,6 +108,6 @@ def record_until_silence(
     return audio
 
 
-def transcribe(audio: np.ndarray) -> str:
-    segments, _ = _get_model().transcribe(audio, language="en")
+def transcribe(audio: np.ndarray, language: str = "en") -> str:
+    segments, _ = _get_model().transcribe(audio, language=language)
     return " ".join(segment.text.strip() for segment in segments)

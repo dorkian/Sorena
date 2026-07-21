@@ -3,6 +3,40 @@ import numpy as np
 from sorena.voice import stt
 
 
+class _FakeSegment:
+    def __init__(self, text):
+        self.text = text
+
+
+class _FakeModel:
+    def __init__(self):
+        self.calls = []
+
+    def transcribe(self, audio, language):
+        self.calls.append(language)
+        return [_FakeSegment("ciao" if language == "it" else "hello")], None
+
+
+def test_transcribe_defaults_to_english(monkeypatch):
+    fake = _FakeModel()
+    monkeypatch.setattr(stt, "_model", fake)
+
+    result = stt.transcribe(np.zeros(10, dtype=np.float32))
+
+    assert fake.calls == ["en"]
+    assert result == "hello"
+
+
+def test_transcribe_passes_requested_language_to_the_model(monkeypatch):
+    fake = _FakeModel()
+    monkeypatch.setattr(stt, "_model", fake)
+
+    result = stt.transcribe(np.zeros(10, dtype=np.float32), language="it")
+
+    assert fake.calls == ["it"]
+    assert result == "ciao"
+
+
 def _mock_device(monkeypatch, sample_rate=16000):
     monkeypatch.setattr(stt, "_wasapi_input_device", lambda: 0)
     monkeypatch.setattr(stt.sd, "query_devices", lambda device: {"default_samplerate": sample_rate})

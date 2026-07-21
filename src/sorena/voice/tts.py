@@ -7,10 +7,14 @@ from piper import PiperVoice, SynthesisConfig
 from piper.download_voices import download_voice
 from scipy.signal import resample_poly
 
-VOICE_NAME = "en_US-danny-low"
+# see docs/adr/0013-bilingual-en-it-voice-support.md
+VOICE_NAMES = {
+    "en": "en_US-danny-low",
+    "it": "it_IT-riccardo-x_low",
+}
 VOICE_DIR = Path(__file__).parent.parent.parent.parent / "models" / "piper"
 
-_voice: PiperVoice | None = None
+_voices: dict[str, PiperVoice] = {}
 
 # Set by request_stop() (e.g. a single click/tap on the orb while it's
 # speaking, wired through face.py's "stop" WS message) to interrupt
@@ -40,19 +44,21 @@ def _wasapi_output_device() -> int:
     return sd.default.device[1]
 
 
-def _get_voice() -> PiperVoice:
-    global _voice
-    if _voice is None:
-        model_path = VOICE_DIR / f"{VOICE_NAME}.onnx"
+def _get_voice(language: str = "en") -> PiperVoice:
+    if language not in _voices:
+        voice_name = VOICE_NAMES[language]
+        model_path = VOICE_DIR / f"{voice_name}.onnx"
         if not model_path.exists():
             VOICE_DIR.mkdir(parents=True, exist_ok=True)
-            download_voice(VOICE_NAME, VOICE_DIR)
-        _voice = PiperVoice.load(model_path)
-    return _voice
+            download_voice(voice_name, VOICE_DIR)
+        _voices[language] = PiperVoice.load(model_path)
+    return _voices[language]
 
 
-def synthesize(text: str, config: SynthesisConfig | None = None) -> tuple[np.ndarray, int]:
-    voice = _get_voice()
+def synthesize(
+    text: str, language: str = "en", config: SynthesisConfig | None = None
+) -> tuple[np.ndarray, int]:
+    voice = _get_voice(language)
     chunks = list(voice.synthesize(text, syn_config=config))
     audio = np.concatenate([c.audio_float_array for c in chunks])
     voice_rate = chunks[0].sample_rate
@@ -71,7 +77,7 @@ def play(audio: np.ndarray, sample_rate: int) -> None:
     sd.wait()
 
 
-def speak(text: str, config: SynthesisConfig | None = None) -> None:
+def speak(text: str, language: str = "en", config: SynthesisConfig | None = None) -> None:
     clear_stop()
-    audio, sample_rate = synthesize(text, config)
+    audio, sample_rate = synthesize(text, language, config)
     play(audio, sample_rate)
