@@ -4,7 +4,7 @@ delegates to it, and returns its reply. It never does the work itself
 """
 
 from sorena import agent, face, router
-from sorena.agents import bus, coach, dayplanner, interviewer, jobscout, researcher, scribe
+from sorena.agents import bus, coach, dayplanner, interviewer, jobscout, jobscout_graph, researcher, scribe
 from sorena.agents.personas import PERSONAS
 
 SPECIALISTS = {
@@ -43,12 +43,19 @@ def run(user_message: str, model_override: str | None = None) -> str:
         "speaking", agent={"name": persona.name, "color": persona.color, "icon": persona.icon}
     )
 
-    reply = agent.run(
-        user_message,
-        system_prompt=specialist.SYSTEM_PROMPT,
-        tool_names=specialist.TOOL_NAMES,
-        model_override=model_override,
-    )
+    if role == "jobscout":
+        # Phase 7: JobScout runs on its own LangGraph StateGraph instead of
+        # the generic hop loop -- see docs/specs/phase-7-jobscout-graph.md
+        # and docs/adr/0014-jobscout-langgraph-vector-search.md. Every other
+        # specialist below is completely unaffected by this branch.
+        reply = jobscout_graph.run(user_message)
+    else:
+        reply = agent.run(
+            user_message,
+            system_prompt=specialist.SYSTEM_PROMPT,
+            tool_names=specialist.TOOL_NAMES,
+            model_override=model_override,
+        )
 
     bus.log_event(agent=role, event_type="handled_message", payload=reply[:200])
 

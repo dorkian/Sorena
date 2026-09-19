@@ -13,6 +13,7 @@ Workflow: read a phase's spec → `/build` it → `/review` it against the spec 
 | 4 | [phase-4-voice-pipeline.md](phase-4-voice-pipeline.md) | Voice / edge AI / latency | v0.4.0 |
 | 5 | [phase-5-memory-rag.md](phase-5-memory-rag.md) | RAG & embeddings | v0.5.0 |
 | 6 | [phase-6-evals-observability.md](phase-6-evals-observability.md) | LLM evals & observability | v1.0.0 |
+| 7 | [phase-7-jobscout-graph.md](phase-7-jobscout-graph.md) | LangGraph, RAG (Postgres/pgvector), agentic tool-boundary design | v1.1.0 |
 
 Source roadmap this was split from: [`../roadmap.md`](../roadmap.md).
 Vault project (session history, milestones): `D:\claude-projects\vault\01-Projects\sorena-ai-assistant\Overview.md`

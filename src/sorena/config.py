@@ -26,3 +26,17 @@ def _parse_limits(raw: str) -> dict[str, int]:
 
 PROVIDER_CHAIN = _parse_chain(os.getenv("SORENA_PROVIDER_CHAIN", _DEFAULT_CHAIN))
 RATE_LIMITS_RPM = _parse_limits(os.getenv("SORENA_RATE_LIMITS_RPM", _DEFAULT_LIMITS))
+
+# Phase 7 (JobScout graph): one Postgres instance (docker-compose.yml's
+# `postgres` service) backs both the pgvector store and the LangGraph
+# checkpointer -- see docs/adr/0014-jobscout-langgraph-vector-search.md.
+# Shared by jobscout_vectors.py and jobscout_graph.py, so it lives here
+# rather than in either module alone.
+# Plain libpq-style DSN (what psycopg.connect() and pg_isready expect).
+# SQLAlchemy-based consumers (jobscout_vectors.py's PGVector store) need the
+# driver named explicitly ("+psycopg") in the URL -- see
+# jobscout_vectors.py's _sqlalchemy_uri() for why that's adapted there
+# instead of changing this one shared constant's format.
+POSTGRES_URI = os.getenv(
+    "SORENA_POSTGRES_URI", "postgresql://sorena:sorena@localhost:5432/sorena_jobscout"
+)

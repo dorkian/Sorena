@@ -34,6 +34,7 @@ flowchart LR
 | 4 | Voice pipeline | v0.4.0 |
 | 5 | Memory & RAG | v0.5.0 |
 | 6 | Evaluation & observability | v1.0.0 |
+| 7 | JobScout graph (LangGraph + Postgres/pgvector RAG) | v1.1.0 |
 
 Full specs, deliverables, and definition-of-done per phase: [`docs/specs/`](docs/specs/README.md).
 
@@ -375,6 +376,52 @@ Tool-selection accuracy (live cases): 9/9 (100%)
 **CI gate:** the deterministic tier runs on every push/PR as part of the normal `uv run pytest` step — no separate CI step needed. The threshold is 100%, enforced by pytest's own exit code: every deterministic case is fully scripted with no real-world variance, so a failure means something genuinely broke, not model flakiness (see ADR 0010).
 
 **Adding a new eval case:** append an `EvalCase` to `tests/evals/cases.py`. A deterministic case needs a `script` (see `tests/evals/harness.py`'s `tool_call`/`tool_calls`/`final` helpers) and at least one `expect_*` assertion; a live case just needs a `user_message`, `live=True`, and what to check for. Prefer mining a case from a real bug over inventing a synthetic one — see the Methodology note in [the spec](docs/specs/phase-6-evals-observability.md).
+
+## Demo: JobScout graph
+
+`JobScout` — one of the multi-agent system's six specialists — is rebuilt on a real **LangGraph** `StateGraph` instead of the shared tool-calling hop loop every other specialist still uses, with genuine **RAG** (Postgres + `pgvector`, via LangChain's retriever abstraction) over Ash's own CV and past job-application verdicts, and a bounded read/write bridge to his real, separately-running job tracker. See [the spec](docs/specs/phase-7-jobscout-graph.md) for the full architecture and [ADR 0014](docs/adr/0014-jobscout-langgraph-vector-search.md) for why this phase deliberately reaches for a framework and a new database service after every prior phase (including [ADR 0008](docs/adr/0008-conversation-turn-as-chunk-unit.md)) hand-rolled instead.
+
+Provisioning is one command — a Postgres container with the `pgvector` extension, nothing else running:
+
+```bash
+docker compose up -d postgres
+uv run python examples/build_jobscout_index.py   # index Ash's real CV + past applications
+```
+
+**Retrieval finds things by meaning, not keywords.** This query names no AI/agent-related word at all:
+
+```bash
+uv run python -c "
+from sorena.jobscout_vectors import semantic_match
+for r in semantic_match('an engineer who builds autonomous software that plans its own steps and calls outside tools', top_k=3):
+    print(f\"[{r['similarity']:.2f}] {r['source']}\")
+"
+```
+
+```
+[0.49] master.json:experience:akeron
+[0.48] master.json:project:sorena
+[0.46] master.json:skill:ai
+```
+
+Ash's Akeron role, the Sorena project itself, and his AI-engineering skill entry all surfaced — by meaning alone, with zero literal word overlap.
+
+**The interrupt is real, and survives a restart.** `deep_dive` (a deliberate score on one posting Ash names) pauses with a genuine LangGraph `interrupt()` before spending an LLM call, and resumes from Postgres, not from Python-process memory — proven across two separate `uv run python` processes with nothing but the checkpointer connecting them:
+
+```
+# process 1
+RESULT: {..., '__interrupt__': [Interrupt(value={'question': 'Run a full deep-dive
+score on Tech Lead Full-Stack Rails Engineer at Mitre Media?', ...})]}
+
+# process 2 (fresh interpreter, resumed via Command(resume=True))
+RESULT: {..., 'reply': 'Saved: grade F, 45/100 for Tech Lead Full-Stack Rails
+Engineer at Mitre Media.'}
+```
+
+```bash
+uv run pytest tests/test_jobscout_graph.py                          # 20 deterministic tests, no Postgres/network needed
+uv run pytest tests/test_jobscout_graph_postgres_integration.py     # needs `docker compose up -d postgres`
+```
 
 ## Development
 

@@ -11,10 +11,16 @@ dependencies = [
     "google-api-python-client>=2.198.0",
     "google-auth-httplib2>=0.4.0",
     "google-auth-oauthlib>=1.4.0",
+    "httpx>=0.28.1",
+    "langchain-core>=1.6.3",
+    "langchain-postgres>=0.0.18",
+    "langgraph>=1.2.11",
+    "langgraph-checkpoint-postgres>=3.1.2",
     "litellm<1.92",
     "mcp>=1.28.1",
     "openwakeword>=0.6.0",
     "piper-tts>=1.4.2",
+    "psycopg[binary,pool]>=3.3.5",
     "python-dotenv>=1.2.2",
     "pyyaml>=6.0.3",
     "requests>=2.34.2",
@@ -35,7 +41,7 @@ requires = ["uv_build>=0.11.22,<0.12.0"]
 build-backend = "uv_build"
 
 [tool.uv]
-environments = ["sys_platform == 'win32'"]
+environments = ["sys_platform == 'win32'", "sys_platform == 'darwin'"]
 
 [dependency-groups]
 dev = [

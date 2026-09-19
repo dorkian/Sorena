@@ -28,20 +28,23 @@ from sorena.long_term_memory import DB_PATH
 PROFILE_PATH = Path(__file__).resolve().parent.parent.parent.parent / "data" / "profile.yaml"
 REMOTIVE_API = "https://remotive.com/api/remote-jobs"
 
-# Ash's real CV lives in a separate vault project (cv-optimizer), not this
-# repo -- same "points at Ash's real personal data" precedent as the Google
-# Calendar integration. Overridable since the path is specific to this
-# machine.
+# Ash's real CV lives in a separate second-brain project (cv-optimizer), not
+# this repo -- same "points at Ash's real personal data" precedent as the
+# Google Calendar integration. Overridable since the path is specific to this
+# machine. Defaults updated 2026-09-17 (Phase 7) from the pre-migration
+# Windows vault path (D:/claude-projects/vault/...), which was dead on this
+# Mac and silently broke get_cv() -- see docs/specs/phase-7-jobscout-graph.md,
+# Deliverables, "Fix a pre-existing blocker".
 CV_PATH = Path(
     os.getenv(
         "SORENA_CV_PATH",
-        "D:/claude-projects/vault/01-Projects/cv-optimizer/cv-en-optimized.md",
+        "/Users/ashkan/Documents/workspace/second-brain/01-projects/cv-optimizer/cv-en-optimized.md",
     )
 )
 CV_PATH_FALLBACK = Path(
     os.getenv(
         "SORENA_CV_PATH_FALLBACK",
-        "D:/claude-projects/vault/01-Projects/cv-optimizer/cv-en.md",
+        "/Users/ashkan/Documents/workspace/second-brain/01-projects/cv-optimizer/cv-en.md",
     )
 )
 
@@ -158,7 +161,15 @@ SEARCH_AND_SCORE_JOBS_SCHEMA = {
 }
 
 
-def search_and_score_jobs(query: str, limit: int = 10) -> str:
+def search_and_score_jobs_raw(query: str, limit: int = 10) -> list[dict]:
+    """Structured version of search_and_score_jobs, for callers that need
+    real fields (company/title/score/...) instead of a pre-formatted string
+    -- same split as find_skill_gap() (structured) vs get_skill_gap()
+    (string). Added in Phase 7 for jobscout_graph.py's bulk_search node,
+    which needs real fields to run dedup_against_tracker's fuzzy matching
+    and vector_rank's semantic annotation against. search_and_score_jobs()
+    below is now a thin formatting wrapper around this -- its own behavior
+    (including the exact string it returns) is unchanged."""
     profile = load_profile()
     resp = requests.get(REMOTIVE_API, params={"search": query, "limit": limit}, timeout=10)
     resp.raise_for_status()
@@ -200,22 +211,35 @@ def search_and_score_jobs(query: str, limit: int = 10) -> str:
                 ),
             )
             new_matches.append(
-                (score, company, title, job.get("description", ""), location, job.get("url", ""))
+                {
+                    "score": score,
+                    "company": company,
+                    "title": title,
+                    "description": job.get("description", ""),
+                    "location": location,
+                    "url": job.get("url", ""),
+                }
             )
         conn.commit()
     finally:
         conn.close()
 
-    if not new_matches:
+    new_matches.sort(key=lambda m: m["score"], reverse=True)
+    return new_matches[:limit]
+
+
+def search_and_score_jobs(query: str, limit: int = 10) -> str:
+    top = search_and_score_jobs_raw(query, limit)
+
+    if not top:
         return "No new postings found (either none matched, or all were already seen)."
 
-    new_matches.sort(key=lambda m: m[0], reverse=True)
-    top = new_matches[:limit]
     # Remotive's terms require linking back to their listing URL when
     # relaying jobs found through their API -- keep the url in every line.
     lines = [
-        f"[{score}] {title}: {description} at {company} ({location}) -- {url} (via Remotive)"
-        for score, company, title, description, location, url in top
+        f"[{m['score']}] {m['title']}: {m['description']} at {m['company']} "
+        f"({m['location']}) -- {m['url']} (via Remotive)"
+        for m in top
     ]
     return "\n".join(lines)
 
@@ -315,7 +339,10 @@ GET_JOB_POSTING_SCHEMA = {
 }
 
 
-def get_job_posting(query: str) -> str:
+def find_job_posting(query: str) -> dict | None:
+    """Structured version of get_job_posting, for callers (jobscout_graph.py's
+    deep_dive node) that need real fields instead of a formatted string --
+    same split as search_and_score_jobs_raw/search_and_score_jobs."""
     conn = _connect()
     try:
         row = conn.execute(
@@ -327,9 +354,16 @@ def get_job_posting(query: str) -> str:
         conn.close()
 
     if row is None:
-        return f"No stored posting matches '{query}'."
+        return None
     company, title, description, url = row
-    return f"{title} at {company} ({url}):\n{description}"
+    return {"company": company, "title": title, "description": description, "url": url}
+
+
+def get_job_posting(query: str) -> str:
+    posting = find_job_posting(query)
+    if posting is None:
+        return f"No stored posting matches '{query}'."
+    return f"{posting['title']} at {posting['company']} ({posting['url']}):\n{posting['description']}"
 
 
 def _grade_for(overall_score: int) -> str:
