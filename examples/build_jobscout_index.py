@@ -23,9 +23,7 @@ from langchain_core.documents import Document
 
 from sorena.jobscout_vectors import upsert_documents
 
-MASTER_JSON_PATH = Path(
-    "/Users/ashkan/Documents/workspace/repos/cv-optimizer/builder/master.json"
-)
+MASTER_JSON_PATH = Path("/Users/ashkan/Documents/workspace/repos/cv-optimizer/builder/master.json")
 ANALYSIS_GLOB = (
     "/Users/ashkan/Documents/workspace/second-brain/01-projects/cv-optimizer/*/analysis.md"
 )
@@ -58,7 +56,8 @@ def _load_master_json_docs() -> list[Document]:
 
     for proj in data.get("projects", []):
         source = f"master.json:project:{proj['id']}"
-        text = f"{proj['name']} -- {proj['role']['en']}. Tech: {', '.join(proj.get('technologies', []))}."
+        techs = ", ".join(proj.get("technologies", []))
+        text = f"{proj['name']} -- {proj['role']['en']}. Tech: {techs}."
         docs.append(Document(page_content=text, metadata={"id": _id(source), "source": source}))
 
     return docs

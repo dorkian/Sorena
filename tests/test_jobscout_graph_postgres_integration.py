@@ -82,7 +82,8 @@ def test_interrupt_pauses_and_resumes_via_real_postgres_checkpointer(monkeypatch
     monkeypatch.setattr(jobscout_tool, "DB_PATH", tmp_path / "test_jobs.db")
     conn = jobscout_tool._connect()
     conn.execute(
-        "INSERT INTO job_postings (dedupe_hash, company, title, description, location, url, score, seen_at) "
+        "INSERT INTO job_postings "
+        "(dedupe_hash, company, title, description, location, url, score, seen_at) "
         "VALUES ('test-hash-1', 'TestCorp', 'Test Engineer', 'a test posting', 'Remote', "
         "'https://example.com/job', 50, datetime('now'))"
     )
@@ -124,7 +125,9 @@ def test_live_bulk_search_full_turn():
     from sorena.agents import jobscout_graph
 
     with patch.object(jobscout_graph.tracker_tool, "get_tracked_applications", return_value=[]):
-        reply = jobscout_graph.run("find me remote AI engineer jobs", thread_id="live-bulk-search-test")
+        reply = jobscout_graph.run(
+            "find me remote AI engineer jobs", thread_id="live-bulk-search-test"
+        )
 
     assert reply  # real Remotive + real routing + real vector_rank all produced *something*
     assert "not implemented" not in reply  # would mean it got misrouted to a stub node

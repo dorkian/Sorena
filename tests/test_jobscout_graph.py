@@ -80,7 +80,9 @@ def test_route_dispatches_to_correct_node(monkeypatch, route):
     # dedup_against_tracker/vector_rank only sit after bulk_search in the
     # real graph; bulk_search_node is patched above so they still run but
     # against whatever (empty) state the patched node returns.
-    monkeypatch.setattr(jobscout_graph, "dedup_against_tracker_node", lambda state: {"deduped_results": []})
+    monkeypatch.setattr(
+        jobscout_graph, "dedup_against_tracker_node", lambda state: {"deduped_results": []}
+    )
     monkeypatch.setattr(jobscout_graph, "vector_rank_node", lambda state: {"reply": "bulk_search"})
 
     app = jobscout_graph._build_graph().compile()
@@ -99,14 +101,28 @@ def test_extract_query_term_falls_back_to_whole_message_if_nothing_capitalized()
 
 def test_dedup_against_tracker_node_filters_already_tracked_job():
     raw = [
-        {"company": "Bending Spoons", "title": "Senior Engineer", "score": 80,
-         "description": "", "location": "", "url": ""},
-        {"company": "NewCo", "title": "AI Engineer", "score": 70,
-         "description": "", "location": "", "url": ""},
+        {
+            "company": "Bending Spoons",
+            "title": "Senior Engineer",
+            "score": 80,
+            "description": "",
+            "location": "",
+            "url": "",
+        },
+        {
+            "company": "NewCo",
+            "title": "AI Engineer",
+            "score": 70,
+            "description": "",
+            "location": "",
+            "url": "",
+        },
     ]
     tracked = [{"company": "Bending Spoons", "title": "Senior Engineer"}]
 
-    with patch.object(jobscout_graph.tracker_tool, "get_tracked_applications", return_value=tracked):
+    with patch.object(
+        jobscout_graph.tracker_tool, "get_tracked_applications", return_value=tracked
+    ):
         result = dedup_against_tracker_node(JobScoutState(user_message="x", raw_results=raw))
 
     companies = [j["company"] for j in result["deduped_results"]]
@@ -114,8 +130,16 @@ def test_dedup_against_tracker_node_filters_already_tracked_job():
 
 
 def test_dedup_against_tracker_node_keeps_everything_when_tracker_empty():
-    raw = [{"company": "NewCo", "title": "AI Engineer", "score": 70,
-            "description": "", "location": "", "url": ""}]
+    raw = [
+        {
+            "company": "NewCo",
+            "title": "AI Engineer",
+            "score": 70,
+            "description": "",
+            "location": "",
+            "url": "",
+        }
+    ]
 
     with patch.object(jobscout_graph.tracker_tool, "get_tracked_applications", return_value=[]):
         result = dedup_against_tracker_node(JobScoutState(user_message="x", raw_results=raw))
@@ -125,10 +149,17 @@ def test_dedup_against_tracker_node_keeps_everything_when_tracker_empty():
 
 def test_status_update_node_maps_rejected_and_calls_tracker_correctly():
     apps = [{"job_id": "abc-123", "company": "Bending Spoons", "status": "Applied"}]
-    with patch.object(jobscout_graph.tracker_tool, "get_tracked_applications", return_value=apps), \
-         patch.object(jobscout_graph.tracker_tool, "update_application_status", return_value=True) as mock_status, \
-         patch.object(jobscout_graph.tracker_tool, "log_application_event", return_value=True) as mock_event:
-        result = status_update_node(JobScoutState(user_message="I got rejected by Bending Spoons today"))
+    message = "I got rejected by Bending Spoons today"
+    with (
+        patch.object(jobscout_graph.tracker_tool, "get_tracked_applications", return_value=apps),
+        patch.object(
+            jobscout_graph.tracker_tool, "update_application_status", return_value=True
+        ) as mock_status,
+        patch.object(
+            jobscout_graph.tracker_tool, "log_application_event", return_value=True
+        ) as mock_event,
+    ):
+        result = status_update_node(JobScoutState(user_message=message))
 
     assert "Rejected" in result["reply"]
     mock_status.assert_called_once_with("abc-123", "Rejected")
@@ -138,9 +169,12 @@ def test_status_update_node_maps_rejected_and_calls_tracker_correctly():
 
 
 def test_status_update_node_no_matching_application_does_not_call_tracker():
-    with patch.object(jobscout_graph.tracker_tool, "get_tracked_applications", return_value=[]), \
-         patch.object(jobscout_graph.tracker_tool, "update_application_status") as mock_status:
-        result = status_update_node(JobScoutState(user_message="I got rejected by Nobody Inc today"))
+    with (
+        patch.object(jobscout_graph.tracker_tool, "get_tracked_applications", return_value=[]),
+        patch.object(jobscout_graph.tracker_tool, "update_application_status") as mock_status,
+    ):
+        message = "I got rejected by Nobody Inc today"
+        result = status_update_node(JobScoutState(user_message=message))
 
     assert "Couldn't find" in result["reply"]
     mock_status.assert_not_called()
@@ -155,8 +189,12 @@ def test_status_update_node_unrecognized_outcome_does_not_call_tracker():
 
 
 def test_skill_gap_node_reports_without_delegate_keyword():
-    with patch.object(jobscout_graph.jobscout_tool, "get_skill_gap", return_value="LangGraph is your top gap") as mock_report, \
-         patch.object(jobscout_graph.delegation_tool, "notify_coach_of_skill_gap") as mock_delegate:
+    with (
+        patch.object(
+            jobscout_graph.jobscout_tool, "get_skill_gap", return_value="LangGraph is your top gap"
+        ) as mock_report,
+        patch.object(jobscout_graph.delegation_tool, "notify_coach_of_skill_gap") as mock_delegate,
+    ):
         result = skill_gap_node(JobScoutState(user_message="what should I learn next"))
 
     assert result["reply"] == "LangGraph is your top gap"
@@ -165,8 +203,12 @@ def test_skill_gap_node_reports_without_delegate_keyword():
 
 
 def test_skill_gap_node_delegates_with_action_keyword():
-    with patch.object(jobscout_graph.jobscout_tool, "get_skill_gap") as mock_report, \
-         patch.object(jobscout_graph.delegation_tool, "notify_coach_of_skill_gap", return_value="scheduled") as mock_delegate:
+    with (
+        patch.object(jobscout_graph.jobscout_tool, "get_skill_gap") as mock_report,
+        patch.object(
+            jobscout_graph.delegation_tool, "notify_coach_of_skill_gap", return_value="scheduled"
+        ) as mock_delegate,
+    ):
         result = skill_gap_node(JobScoutState(user_message="schedule a lesson on my top gap"))
 
     assert result["reply"] == "scheduled"

@@ -363,7 +363,8 @@ def get_job_posting(query: str) -> str:
     posting = find_job_posting(query)
     if posting is None:
         return f"No stored posting matches '{query}'."
-    return f"{posting['title']} at {posting['company']} ({posting['url']}):\n{posting['description']}"
+    header = f"{posting['title']} at {posting['company']} ({posting['url']})"
+    return f"{header}:\n{posting['description']}"
 
 
 def _grade_for(overall_score: int) -> str:

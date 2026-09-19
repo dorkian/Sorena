@@ -15,17 +15,17 @@ import re
 from datetime import date
 
 import psycopg
-from psycopg.rows import dict_row
-from pydantic import BaseModel, Field, ValidationError
 from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.graph import END, START, StateGraph
-from langgraph.types import Command, interrupt
+from langgraph.types import interrupt
+from psycopg.rows import dict_row
+from pydantic import BaseModel, Field, ValidationError
 
 from sorena import router
 from sorena.callbacks import TraceCallbackHandler
 from sorena.config import POSTGRES_URI
-from sorena.tools import delegation_tool, jobscout_tool, tracker_tool
 from sorena.jobscout_vectors import semantic_match
+from sorena.tools import delegation_tool, jobscout_tool, tracker_tool
 
 _ROUTES = ("bulk_search", "deep_dive", "skill_gap", "status_update")
 
@@ -101,7 +101,8 @@ def _judge_posting(cv_text: str, posting: dict, retrieved_context: list[dict]) -
     into the judgment prompt, grounding the score in Ash's actual CV
     language and past verdicts on similar postings -- not just the raw CV
     text and a generic rubric (see ADR 0014's RAG explanation)."""
-    context_block = "\n".join(f"- {c['snippet'][:300]}" for c in retrieved_context) or "(none found)"
+    context_lines = (f"- {c['snippet'][:300]}" for c in retrieved_context)
+    context_block = "\n".join(context_lines) or "(none found)"
 
     prompt = (
         "Score this job posting against the CV, using this rubric: Skills Match /30, "
@@ -119,8 +120,8 @@ def _judge_posting(cv_text: str, posting: dict, retrieved_context: list[dict]) -
         '"missing_skills": str, "red_flags": str, "notes": str}'
     )
     response = router.chat([{"role": "user", "content": prompt}])
-    payload = json.loads(response.strip().removeprefix("```json").removeprefix("```").removesuffix("```"))
-    return JobMatchJudgment.model_validate(payload)
+    cleaned = response.strip().removeprefix("```json").removeprefix("```").removesuffix("```")
+    return JobMatchJudgment.model_validate(json.loads(cleaned))
 
 
 def route_node(state: JobScoutState) -> dict:
@@ -177,7 +178,11 @@ def vector_rank_node(state: JobScoutState) -> dict:
     for job in state.deduped_results:
         matches = semantic_match(job["description"] or job["title"], top_k=1)
         best = matches[0] if matches else None
-        signal = f"semantic match: {best['similarity']:.2f} ({best['source']})" if best else "no semantic match"
+        signal = (
+            f"semantic match: {best['similarity']:.2f} ({best['source']})"
+            if best
+            else "no semantic match"
+        )
         lines.append(
             f"[{job['score']}] {job['title']} at {job['company']} ({job['location']}) "
             f"-- {job['url']} | {signal}"
@@ -199,12 +204,8 @@ def deep_dive_node(state: JobScoutState) -> dict:
     if posting is None:
         return {"reply": f"No stored posting matches '{term}'."}
 
-    confirmed = interrupt(
-        {
-            "question": f"Run a full deep-dive score on {posting['title']} at {posting['company']}?",
-            "url": posting["url"],
-        }
-    )
+    question = f"Run a full deep-dive score on {posting['title']} at {posting['company']}?"
+    confirmed = interrupt({"question": question, "url": posting["url"]})
     if not confirmed:
         return {"reply": "Deep-dive cancelled."}
 
@@ -276,7 +277,8 @@ def status_update_node(state: JobScoutState) -> dict:
 
     job_id = match["job_id"]
     status_ok = tracker_tool.update_application_status(job_id, status)
-    event_ok = tracker_tool.log_application_event(job_id, event_type, date.today().isoformat(), outcome)
+    today = date.today().isoformat()
+    event_ok = tracker_tool.log_application_event(job_id, event_type, today, outcome)
 
     if status_ok and event_ok:
         return {"reply": f"Tracker updated -- {match['company']}: {status}."}
@@ -328,7 +330,7 @@ def _get_checkpointer() -> PostgresSaver:
     if _checkpointer is None:
         conn = psycopg.connect(POSTGRES_URI, autocommit=True, row_factory=dict_row)
         _checkpointer = PostgresSaver(conn)
-        _checkpointer.setup()  # creates the checkpoint tables if they don't exist yet; safe to re-run
+        _checkpointer.setup()  # creates checkpoint tables if missing; safe to re-run
     return _checkpointer
 
 

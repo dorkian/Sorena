@@ -82,7 +82,8 @@ def log_application_event(
     `outcome` must be in the sets above -- same fail-fast-before-the-network-
     call rule as update_application_status."""
     if event_type not in VALID_EVENT_TYPES:
-        raise ValueError(f"event_type must be one of {sorted(VALID_EVENT_TYPES)}, got {event_type!r}")
+        valid = sorted(VALID_EVENT_TYPES)
+        raise ValueError(f"event_type must be one of {valid}, got {event_type!r}")
     if outcome not in VALID_OUTCOMES:
         raise ValueError(f"outcome must be one of {sorted(VALID_OUTCOMES)}, got {outcome!r}")
 

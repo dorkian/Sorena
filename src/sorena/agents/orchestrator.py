@@ -4,7 +4,16 @@ delegates to it, and returns its reply. It never does the work itself
 """
 
 from sorena import agent, face, router
-from sorena.agents import bus, coach, dayplanner, interviewer, jobscout, jobscout_graph, researcher, scribe
+from sorena.agents import (
+    bus,
+    coach,
+    dayplanner,
+    interviewer,
+    jobscout,
+    jobscout_graph,
+    researcher,
+    scribe,
+)
 from sorena.agents.personas import PERSONAS
 
 SPECIALISTS = {
